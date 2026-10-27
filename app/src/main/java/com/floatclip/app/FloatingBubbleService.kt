@@ -113,7 +113,7 @@ class FloatingBubbleService : Service() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.END
+            gravity = Gravity.START
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
 
@@ -143,13 +143,13 @@ class FloatingBubbleService : Service() {
             contentDescription = "FloatClip floating menu"
         }
 
-        root.addView(panel)
         root.addView(
             bubble,
             LinearLayout.LayoutParams(dp(58), dp(58)).apply {
                 topMargin = dp(6)
             }
         )
+        root.addView(panel)
 
         windowParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
