@@ -403,7 +403,8 @@ private fun SavedClipboardSheet(
                     ClipboardTools.toast(context, "Clipboard is empty. Copy text first.")
                 } else {
                     scope.launch {
-                        dao.insertSaved(SavedClipboardEntity(slot = slot, content = content))
+                        val position = (dao.maxSavedPosition(slot) ?: -1) + 1
+                        dao.insertSaved(SavedClipboardEntity(slot = slot, content = content, position = position))
                         val count = dao.countSaved(slot)
                         withContext(Dispatchers.Main) {
                             ClipboardTools.toast(context, "Added a new row to $slot Sheet (#$count)")
