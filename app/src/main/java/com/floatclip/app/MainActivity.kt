@@ -154,9 +154,9 @@ private fun FloatClipScreen(database: FloatClipDatabase) {
 
         Spacer(Modifier.height(12.dp))
         when (selectedTab) {
-            0 -> QuickTextSheet(quickTexts, dao)
-            1 -> SavedClipboardSheet("A", aItems, dao)
-            2 -> SavedClipboardSheet("C", cItems, dao)
+            0 -> QuickTextSpreadsheet(quickTexts, dao)
+            1 -> SavedClipboardSpreadsheet("A", aItems, dao)
+            2 -> SavedClipboardSpreadsheet("C", cItems, dao)
             else -> TwoFactorSheet()
         }
     }
