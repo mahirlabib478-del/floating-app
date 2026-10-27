@@ -55,7 +55,7 @@ interface FloatClipDao {
     @Query("DELETE FROM quick_texts WHERE id = :id")
     suspend fun deleteQuickText(id: Long)
 
-    @Query("SELECT * FROM saved_clipboard WHERE slot = :slot ORDER BY id DESC")
+    @Query("SELECT * FROM saved_clipboard WHERE slot = :slot ORDER BY id ASC")
     fun observeSaved(slot: String): Flow<List<SavedClipboardEntity>>
 
     @Insert
