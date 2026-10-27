@@ -282,7 +282,8 @@ class FloatingBubbleService : Service() {
         }
 
         serviceScope.launch {
-            database.dao().insertSaved(SavedClipboardEntity(slot = slot, content = content))
+            val position = (database.dao().maxSavedPosition(slot) ?: -1) + 1
+            database.dao().insertSaved(SavedClipboardEntity(slot = slot, content = content, position = position))
             val count = database.dao().countSaved(slot)
             withContext(Dispatchers.Main) {
                 ClipboardTools.toast(this@FloatingBubbleService, "Saved as a new row in $slot Sheet (#$count)")
