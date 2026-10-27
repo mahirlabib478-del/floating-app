@@ -35,5 +35,12 @@ jobs:
         with:
           gradle-version: "8.10.2"
 
-      - name: Assemble debug APK
-        run: gradle assembleDebug
+      - name: Run unit tests and assemble debug APK
+        run: gradle testDebugUnitTest assembleDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: floatclip-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
