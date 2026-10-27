@@ -10,6 +10,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "quick_texts")
@@ -18,7 +20,9 @@ data class QuickTextEntity(
     val title: String,
     val content: String,
     val position: Int,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val colC: String = "",
+    val colD: String = ""
 )
 
 @Entity(tableName = "saved_clipboard")
@@ -26,7 +30,11 @@ data class SavedClipboardEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val slot: String,
     val content: String,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val position: Int = 0,
+    val colB: String = "",
+    val colC: String = "",
+    val colD: String = ""
 )
 
 @Dao
@@ -55,8 +63,17 @@ interface FloatClipDao {
     @Query("DELETE FROM quick_texts WHERE id = :id")
     suspend fun deleteQuickText(id: Long)
 
-    @Query("SELECT * FROM saved_clipboard WHERE slot = :slot ORDER BY id ASC")
+    @Query("DELETE FROM quick_texts")
+    suspend fun deleteAllQuickTexts()
+
+    @Query("SELECT * FROM saved_clipboard WHERE slot = :slot ORDER BY position ASC, id ASC")
     fun observeSaved(slot: String): Flow<List<SavedClipboardEntity>>
+
+    @Query("SELECT * FROM saved_clipboard WHERE slot = :slot ORDER BY position ASC, id ASC")
+    suspend fun getSavedOnce(slot: String): List<SavedClipboardEntity>
+
+    @Query("SELECT MAX(position) FROM saved_clipboard WHERE slot = :slot")
+    suspend fun maxSavedPosition(slot: String): Int?
 
     @Insert
     suspend fun insertSaved(item: SavedClipboardEntity): Long
@@ -67,19 +84,38 @@ interface FloatClipDao {
     @Query("DELETE FROM saved_clipboard WHERE id = :id")
     suspend fun deleteSaved(id: Long)
 
+    @Query("DELETE FROM saved_clipboard WHERE slot = :slot")
+    suspend fun deleteAllSaved(slot: String)
+
     @Query("SELECT COUNT(*) FROM saved_clipboard WHERE slot = :slot")
     suspend fun countSaved(slot: String): Int
 }
 
 @Database(
     entities = [QuickTextEntity::class, SavedClipboardEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class FloatClipDatabase : RoomDatabase() {
     abstract fun dao(): FloatClipDao
 
     companion object {
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE quick_texts ADD COLUMN colC TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE quick_texts ADD COLUMN colD TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE saved_clipboard ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE saved_clipboard ADD COLUMN colB TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE saved_clipboard ADD COLUMN colC TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE saved_clipboard ADD COLUMN colD TEXT NOT NULL DEFAULT ''")
+                database.execSQL(
+                    "UPDATE saved_clipboard SET position = " +
+                        "(SELECT COUNT(*) - 1 FROM saved_clipboard AS older " +
+                        "WHERE older.slot = saved_clipboard.slot AND older.id <= saved_clipboard.id)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: FloatClipDatabase? = null
 
@@ -89,7 +125,10 @@ abstract class FloatClipDatabase : RoomDatabase() {
                     context.applicationContext,
                     FloatClipDatabase::class.java,
                     "floatclip.db"
-                ).build().also { instance = it }
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .build()
+                    .also { instance = it }
             }
         }
     }
