@@ -253,7 +253,7 @@ class FloatingBubbleService : Service() {
     private fun copyNextQuickText() {
         serviceScope.launch {
             quickCopyMutex.withLock {
-                val items = database.dao().getQuickTextsOnce()
+                val items = database.dao().getQuickTextsOnce().filter { it.content.isNotBlank() }
                 if (items.isEmpty()) {
                     withContext(Dispatchers.Main) {
                         ClipboardTools.toast(this@FloatingBubbleService, "Quick Text is empty. Add text in FloatClip first.")
