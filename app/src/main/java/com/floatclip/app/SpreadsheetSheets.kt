@@ -83,6 +83,51 @@ private val sheetPalettes = listOf(
 
 private val columnNames = listOf("COL A", "COL B", "COL C", "COL D")
 
+private data class CellPosition(val row: Int, val column: Int)
+
+private data class SheetSelection(
+    val startRow: Int = 0,
+    val startColumn: Int = 0,
+    val endRow: Int = startRow,
+    val endColumn: Int = startColumn,
+    val wholeRow: Int? = null,
+    val wholeColumn: Int? = null
+) {
+    fun contains(row: Int, column: Int): Boolean {
+        if (wholeRow != null) return row == wholeRow
+        if (wholeColumn != null) return column == wholeColumn
+        return row in minOf(startRow, endRow)..maxOf(startRow, endRow) &&
+            column in minOf(startColumn, endColumn)..maxOf(startColumn, endColumn)
+    }
+
+    fun topRow(): Int = wholeRow ?: if (wholeColumn != null) 0 else minOf(startRow, endRow)
+    fun bottomRow(lastExistingRow: Int): Int =
+        wholeRow ?: if (wholeColumn != null) lastExistingRow else maxOf(startRow, endRow)
+    fun leftColumn(): Int = wholeColumn ?: if (wholeRow != null) 0 else minOf(startColumn, endColumn)
+    fun rightColumn(columnCount: Int): Int =
+        wholeRow?.let { columnCount - 1 } ?: wholeColumn ?: maxOf(startColumn, endColumn)
+
+    fun rowSpan(): Int = if (wholeRow != null || wholeColumn != null) 1 else maxOf(startRow, endRow) - minOf(startRow, endRow) + 1
+    fun columnSpan(columnCount: Int): Int =
+        if (wholeRow != null) columnCount else if (wholeColumn != null) 1 else maxOf(startColumn, endColumn) - minOf(startColumn, endColumn) + 1
+
+    fun label(columnCount: Int): String {
+        if (wholeColumn != null) return "${columnLetter(wholeColumn)}:${columnLetter(wholeColumn)}"
+        if (wholeRow != null) return "A${wholeRow + 1}:${columnLetter(columnCount - 1)}${wholeRow + 1}"
+        val top = minOf(startRow, endRow)
+        val bottom = maxOf(startRow, endRow)
+        val left = minOf(startColumn, endColumn)
+        val right = maxOf(startColumn, endColumn)
+        val first = "${columnLetter(left)}${top + 1}"
+        val last = "${columnLetter(right)}${bottom + 1}"
+        return if (first == last) first else "${first}:${last}"
+    }
+}
+
+private fun columnLetter(index: Int): String =
+    listOf("A", "B", "C", "D").getOrElse(index) { "?" }
+
+
 @Composable
 fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
     val context = LocalContext.current
@@ -91,7 +136,9 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
     val horizontalState = rememberScrollState()
     val editMutex = remember { Mutex() }
     var paletteIndex by remember { mutableStateOf(0) }
-    var selectedRow by remember { mutableStateOf(0) }
+    var selection by remember { mutableStateOf(SheetSelection()) }
+    var rangeSelectMode by remember { mutableStateOf(false) }
+    var rangeAnchor by remember { mutableStateOf<CellPosition?>(null) }
     var showPurgeDialog by remember { mutableStateOf(false) }
     val palette = sheetPalettes[paletteIndex]
     val rowCount = maxOf(16, items.size + 1)
@@ -104,27 +151,104 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
         )
     }
 
+    val selectCell: (Int, Int) -> Unit = { row, column ->
+        if (rangeSelectMode) {
+            val anchor = rangeAnchor
+            if (anchor == null) {
+                rangeAnchor = CellPosition(row, column)
+                selection = SheetSelection(row, column, row, column)
+                ClipboardTools.toast(context, "Start cell selected. Tap the last cell of the range.")
+            } else {
+                selection = SheetSelection(anchor.row, anchor.column, row, column)
+                rangeAnchor = null
+                rangeSelectMode = false
+                focusManager.clearFocus()
+                ClipboardTools.toast(context, "Selected range ${selection.label(1)}.")
+            }
+        } else {
+            selection = SheetSelection(row, column, row, column)
+            rangeAnchor = null
+        }
+    }
+    val selectColumn: (Int) -> Unit = { column ->
+        focusManager.clearFocus()
+        selection = SheetSelection(wholeColumn = column)
+        rangeAnchor = null
+        rangeSelectMode = false
+        ClipboardTools.toast(context, "Selected entire Column A.")
+    }
+    val selectRow: (Int) -> Unit = { row ->
+        focusManager.clearFocus()
+        selection = SheetSelection(wholeRow = row)
+        rangeAnchor = null
+        rangeSelectMode = false
+        ClipboardTools.toast(context, "Selected entire Row ${row + 1}.")
+    }
+    val toggleRangeSelection = {
+        if (rangeSelectMode) {
+            rangeSelectMode = false
+            rangeAnchor = null
+            ClipboardTools.toast(context, "Range selection cancelled.")
+        } else {
+            focusManager.clearFocus()
+            rangeSelectMode = true
+            rangeAnchor = null
+            ClipboardTools.toast(context, "Tap the first cell, then the last cell to select a range.")
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
         SheetToolbar(
             palette = palette,
             columnCount = 1,
-            selectedCellLabel = "A${selectedRow + 1}",
+            selectedCellLabel = selection.label(1),
+            rangeSelectMode = rangeSelectMode,
+            onToggleRange = toggleRangeSelection,
+            onCopySelection = {
+                val first = selection.topRow()
+                val last = selection.bottomRow(items.lastIndex.coerceAtLeast(0))
+                val values = if (items.isEmpty()) emptyList() else (first..last).map { row ->
+                    items.getOrNull(row)?.content.orEmpty()
+                }
+                if (values.isEmpty() || values.all { it.isBlank() }) {
+                    ClipboardTools.toast(context, "Selected cells are empty.")
+                } else {
+                    ClipboardTools.copyText(context, "FloatClip selection", values.joinToString("\n"))
+                    ClipboardTools.toast(context, "Copied selection ${selection.label(1)}.")
+                }
+            },
             onPaste = {
                 val clipboardText = ClipboardTools.readText(context)
                 if (clipboardText.isNullOrBlank()) {
                     ClipboardTools.toast(context, "Clipboard is empty. Copy text first.")
                 } else {
-                    val pastedRows = parseClipboardGrid(clipboardText).map { it.firstOrNull().orEmpty() }
-                    val startRow = selectedRow
+                    val grid = parseClipboardGrid(clipboardText)
+                    val startRow = selection.topRow()
+                    val startColumn = selection.leftColumn()
+                    val isSingleClipboardCell = grid.size == 1 && grid.firstOrNull()?.size == 1
+                    val fillSelectedRange = isSingleClipboardCell &&
+                        selection.wholeColumn == null &&
+                        selection.rowSpan() > 1
+                    val destinationEndRow = if (fillSelectedRange) selection.bottomRow(rowCount - 1)
+                        else startRow + grid.lastIndex.coerceAtLeast(0)
                     focusManager.clearFocus()
                     scope.launch {
                         editMutex.withLock {
-                            pastedRows.forEachIndexed { offset, value ->
-                                updateQuickTextCell(dao, startRow + offset, value)
+                            if (fillSelectedRange) {
+                                val value = grid.first().firstOrNull().orEmpty()
+                                for (row in startRow..destinationEndRow) {
+                                    updateQuickTextCell(dao, row, value)
+                                }
+                            } else {
+                                grid.forEachIndexed { offset, values ->
+                                    updateQuickTextCell(dao, startRow + offset, values.firstOrNull().orEmpty())
+                                }
                             }
                         }
-                        selectedRow = startRow + pastedRows.lastIndex.coerceAtLeast(0)
-                        ClipboardTools.toast(context, "Pasted ${pastedRows.size} row(s) into Column A.")
+                        selection = SheetSelection(startRow, 0, destinationEndRow, 0)
+                        rangeSelectMode = false
+                        rangeAnchor = null
+                        ClipboardTools.toast(context, "Pasted into Column A starting at A${startRow + 1}.")
                     }
                 }
             },
@@ -148,13 +272,33 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
             onPalette = { paletteIndex = (paletteIndex + 1) % sheetPalettes.size }
         )
 
+        if (rangeSelectMode) {
+            Text(
+                if (rangeAnchor == null) "Range selection: tap the first cell" else "Range selection: tap the last cell",
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp),
+                color = Color(0xFF1A73E8),
+                fontSize = 12.sp
+            )
+        }
+
         PurgeAllButton(onClick = { showPurgeDialog = true })
-        SpreadsheetHeader(horizontalState, palette, columnCount = 1)
+        SpreadsheetHeader(
+            horizontalState,
+            palette,
+            columnCount = 1,
+            selectedColumn = selection.wholeColumn,
+            onSelectColumn = selectColumn
+        )
 
         LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
             itemsIndexed(rows, key = { index, _ -> index }) { index, item ->
                 Row(verticalAlignment = Alignment.Top) {
-                    SpreadsheetRowNumber(index + 1, palette.rowHeader)
+                    SpreadsheetRowNumber(
+                        number = index + 1,
+                        color = palette.rowHeader,
+                        selected = selection.wholeRow == index,
+                        onClick = { selectRow(index) }
+                    )
                     Row(modifier = Modifier.horizontalScroll(horizontalState)) {
                         SpreadsheetCell(
                             rowIndex = index,
@@ -162,8 +306,8 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
                             value = item.content,
                             width = 310.dp,
                             accent = palette.columns[0],
-                            selected = selectedRow == index,
-                            onSelect = { selectedRow = index },
+                            selected = selection.contains(index, 0),
+                            onSelect = { selectCell(index, 0) },
                             onValueChange = { value ->
                                 scope.launch {
                                     editMutex.withLock { updateQuickTextCell(dao, index, value) }
@@ -203,8 +347,9 @@ fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipD
     val horizontalState = rememberScrollState()
     val editMutex = remember { Mutex() }
     var paletteIndex by remember { mutableStateOf(0) }
-    var selectedRow by remember { mutableStateOf(0) }
-    var selectedColumn by remember { mutableStateOf(0) }
+    var selection by remember { mutableStateOf(SheetSelection()) }
+    var rangeSelectMode by remember { mutableStateOf(false) }
+    var rangeAnchor by remember { mutableStateOf<CellPosition?>(null) }
     var showPurgeDialog by remember { mutableStateOf(false) }
     val palette = sheetPalettes[paletteIndex]
     val rowCount = maxOf(16, items.size + 1)
@@ -212,39 +357,135 @@ fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipD
         items.getOrNull(index) ?: ClipboardSheetEntity(position = index)
     }
 
+    val selectCell: (Int, Int) -> Unit = { row, column ->
+        if (rangeSelectMode) {
+            val anchor = rangeAnchor
+            if (anchor == null) {
+                rangeAnchor = CellPosition(row, column)
+                selection = SheetSelection(row, column, row, column)
+                ClipboardTools.toast(context, "Start cell selected. Tap the last cell of the range.")
+            } else {
+                selection = SheetSelection(anchor.row, anchor.column, row, column)
+                rangeAnchor = null
+                rangeSelectMode = false
+                focusManager.clearFocus()
+                ClipboardTools.toast(context, "Selected range ${selection.label(4)}.")
+            }
+        } else {
+            selection = SheetSelection(row, column, row, column)
+            rangeAnchor = null
+        }
+    }
+    val selectColumn: (Int) -> Unit = { column ->
+        focusManager.clearFocus()
+        selection = SheetSelection(wholeColumn = column)
+        rangeAnchor = null
+        rangeSelectMode = false
+        ClipboardTools.toast(context, "Selected entire Column ${columnLetter(column)}.")
+    }
+    val selectRow: (Int) -> Unit = { row ->
+        focusManager.clearFocus()
+        selection = SheetSelection(wholeRow = row)
+        rangeAnchor = null
+        rangeSelectMode = false
+        ClipboardTools.toast(context, "Selected entire Row ${row + 1}.")
+    }
+    val toggleRangeSelection = {
+        if (rangeSelectMode) {
+            rangeSelectMode = false
+            rangeAnchor = null
+            ClipboardTools.toast(context, "Range selection cancelled.")
+        } else {
+            focusManager.clearFocus()
+            rangeSelectMode = true
+            rangeAnchor = null
+            ClipboardTools.toast(context, "Tap the first cell, then the last cell to select a range.")
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
         SheetToolbar(
             palette = palette,
             columnCount = 4,
-            selectedCellLabel = columnNames[selectedColumn].last().toString() + (selectedRow + 1),
+            selectedCellLabel = selection.label(4),
+            rangeSelectMode = rangeSelectMode,
+            onToggleRange = toggleRangeSelection,
+            onCopySelection = {
+                val firstRow = selection.topRow()
+                val lastRow = selection.bottomRow(items.lastIndex.coerceAtLeast(0))
+                val firstColumn = selection.leftColumn()
+                val lastColumn = selection.rightColumn(4)
+                val values = if (items.isEmpty()) emptyList() else (firstRow..lastRow).map { row ->
+                    (firstColumn..lastColumn).map { column ->
+                        items.getOrNull(row)?.let { clipboardCell(it, column) }.orEmpty()
+                    }
+                }
+                if (values.isEmpty() || values.all { row -> row.all { it.isBlank() } }) {
+                    ClipboardTools.toast(context, "Selected cells are empty.")
+                } else {
+                    ClipboardTools.copyText(
+                        context,
+                        "FloatClip selection",
+                        values.joinToString("\n") { row -> row.joinToString("\t") }
+                    )
+                    ClipboardTools.toast(context, "Copied selection ${selection.label(4)}.")
+                }
+            },
             onPaste = {
                 val clipboardText = ClipboardTools.readText(context)
                 if (clipboardText.isNullOrBlank()) {
                     ClipboardTools.toast(context, "Clipboard is empty. Copy text first.")
                 } else {
                     val grid = parseClipboardGrid(clipboardText)
-                    val startRow = selectedRow
-                    val startColumn = selectedColumn
+                    val startRow = selection.topRow()
+                    val startColumn = selection.leftColumn()
+                    val singleClipboardCell = grid.size == 1 && grid.firstOrNull()?.size == 1
+                    val fillSelectedRange = singleClipboardCell &&
+                        selection.wholeColumn == null &&
+                        selection.rowSpan() * selection.columnSpan(4) > 1
+                    val destinationEndRow = if (fillSelectedRange) selection.bottomRow(rowCount - 1)
+                        else startRow + grid.lastIndex.coerceAtLeast(0)
+                    val destinationEndColumn = if (fillSelectedRange) selection.rightColumn(4)
+                        else minOf(3, startColumn + (grid.maxOfOrNull { it.size } ?: 1) - 1)
                     focusManager.clearFocus()
                     scope.launch {
                         editMutex.withLock {
-                            grid.forEachIndexed { rowOffset, values ->
-                                values.forEachIndexed { columnOffset, value ->
-                                    val destinationColumn = startColumn + columnOffset
-                                    if (destinationColumn in 0..3) {
-                                        updateClipboardCell(dao, startRow + rowOffset, destinationColumn, value)
+                            if (fillSelectedRange) {
+                                val value = grid.first().firstOrNull().orEmpty()
+                                for (row in startRow..destinationEndRow) {
+                                    for (column in startColumn..destinationEndColumn) {
+                                        updateClipboardCell(dao, row, column, value)
+                                    }
+                                }
+                            } else {
+                                grid.forEachIndexed { rowOffset, values ->
+                                    values.forEachIndexed { columnOffset, value ->
+                                        val destinationColumn = startColumn + columnOffset
+                                        if (destinationColumn in 0..3) {
+                                            updateClipboardCell(dao, startRow + rowOffset, destinationColumn, value)
+                                        }
                                     }
                                 }
                             }
                         }
-                        selectedRow = startRow + grid.lastIndex.coerceAtLeast(0)
-                        selectedColumn = (startColumn + (grid.lastOrNull()?.lastIndex ?: 0)).coerceAtMost(3)
-                        val requestedCells = grid.sumOf { it.size }
-                        val acceptedCells = grid.sumOf { values ->
-                            values.indices.count { startColumn + it in 0..3 }
+                        selection = SheetSelection(
+                            startRow,
+                            startColumn,
+                            destinationEndRow,
+                            destinationEndColumn
+                        )
+                        rangeSelectMode = false
+                        rangeAnchor = null
+                        val pastedCellCount = if (fillSelectedRange) {
+                            (destinationEndRow - startRow + 1) * (destinationEndColumn - startColumn + 1)
+                        } else {
+                            grid.sumOf { values -> values.indices.count { startColumn + it in 0..3 } }
                         }
-                        val suffix = if (acceptedCells < requestedCells) " Extra cells beyond COL D were skipped." else ""
-                        ClipboardTools.toast(context, "Pasted $acceptedCells cell(s) from ${columnNames[startColumn].last()} ${startRow + 1}.$suffix")
+                        val suffix = if (grid.any { it.size + startColumn > 4 }) " Extra cells beyond COL D were skipped." else ""
+                        ClipboardTools.toast(
+                            context,
+                            "Pasted $pastedCellCount cell(s) starting at ${columnLetter(startColumn)}${startRow + 1}.$suffix"
+                        )
                     }
                 }
             },
@@ -275,13 +516,33 @@ fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipD
             onPalette = { paletteIndex = (paletteIndex + 1) % sheetPalettes.size }
         )
 
+        if (rangeSelectMode) {
+            Text(
+                if (rangeAnchor == null) "Range selection: tap the first cell" else "Range selection: tap the last cell",
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp),
+                color = Color(0xFF1A73E8),
+                fontSize = 12.sp
+            )
+        }
+
         PurgeAllButton(onClick = { showPurgeDialog = true })
-        SpreadsheetHeader(horizontalState, palette, columnCount = 4)
+        SpreadsheetHeader(
+            horizontalState,
+            palette,
+            columnCount = 4,
+            selectedColumn = selection.wholeColumn,
+            onSelectColumn = selectColumn
+        )
 
         LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
             itemsIndexed(rows, key = { index, _ -> index }) { index, item ->
                 Row(verticalAlignment = Alignment.Top) {
-                    SpreadsheetRowNumber(index + 1, palette.rowHeader)
+                    SpreadsheetRowNumber(
+                        number = index + 1,
+                        color = palette.rowHeader,
+                        selected = selection.wholeRow == index,
+                        onClick = { selectRow(index) }
+                    )
                     Row(modifier = Modifier.horizontalScroll(horizontalState)) {
                         for (column in 0..3) {
                             SpreadsheetCell(
@@ -290,11 +551,8 @@ fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipD
                                 value = clipboardCell(item, column),
                                 width = 150.dp,
                                 accent = palette.columns[column],
-                                selected = selectedRow == index && selectedColumn == column,
-                                onSelect = {
-                                    selectedRow = index
-                                    selectedColumn = column
-                                },
+                                selected = selection.contains(index, column),
+                                onSelect = { selectCell(index, column) },
                                 onValueChange = { value ->
                                     scope.launch {
                                         editMutex.withLock {
@@ -334,6 +592,9 @@ private fun SheetToolbar(
     palette: SheetPalette,
     columnCount: Int,
     selectedCellLabel: String,
+    rangeSelectMode: Boolean,
+    onToggleRange: () -> Unit,
+    onCopySelection: () -> Unit,
     onPaste: () -> Unit,
     onCopyColumn: (Int) -> Unit,
     onCsv: () -> Unit,
@@ -348,14 +609,45 @@ private fun SheetToolbar(
     ) {
         Button(
             onClick = onPaste,
-            modifier = Modifier.width(76.dp).height(40.dp),
+            modifier = Modifier.width(64.dp).height(40.dp),
             shape = RoundedCornerShape(5.dp),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 0.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color(0xFF1A73E8),
                 contentColor = Color.White
             )
-        ) { Text("Paste $selectedCellLabel", fontSize = 10.sp, maxLines = 1) }
+        ) { Text("Paste", fontSize = 11.sp, maxLines = 1) }
+
+        Button(
+            onClick = onToggleRange,
+            modifier = Modifier.width(84.dp).height(40.dp),
+            shape = RoundedCornerShape(5.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 0.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (rangeSelectMode) Color(0xFF0F766E) else Color(0xFF64748B),
+                contentColor = Color.White
+            )
+        ) { Text(if (rangeSelectMode) "Pick End" else "Range", fontSize = 11.sp, maxLines = 1) }
+
+        Button(
+            onClick = onCopySelection,
+            modifier = Modifier.width(74.dp).height(40.dp),
+            shape = RoundedCornerShape(5.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 0.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF475569),
+                contentColor = Color.White
+            )
+        ) { Text("Copy Sel", fontSize = 10.sp, maxLines = 1) }
+
+        Text(
+            selectedCellLabel,
+            modifier = Modifier.padding(horizontal = 2.dp),
+            color = Color(0xFF1A73E8),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
+        )
 
         for (column in 0 until columnCount) {
             Button(
@@ -415,7 +707,9 @@ private fun PurgeAllButton(onClick: () -> Unit) {
 private fun SpreadsheetHeader(
     horizontalState: androidx.compose.foundation.ScrollState,
     palette: SheetPalette,
-    columnCount: Int
+    columnCount: Int,
+    selectedColumn: Int?,
+    onSelectColumn: (Int) -> Unit
 ) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(
@@ -432,8 +726,9 @@ private fun SpreadsheetHeader(
                     modifier = Modifier
                         .width(if (columnCount == 1) 310.dp else 150.dp)
                         .height(46.dp)
-                        .background(palette.columns[column])
-                        .border(1.dp, GridLine),
+                        .background(if (selectedColumn == column) Color(0xFF1A73E8) else palette.columns[column])
+                        .border(if (selectedColumn == column) 3.dp else 1.dp, if (selectedColumn == column) Color(0xFF0D47A1) else GridLine)
+                        .clickable { onSelectColumn(column) },
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -451,11 +746,17 @@ private fun SpreadsheetHeader(
 }
 
 @Composable
-private fun SpreadsheetRowNumber(number: Int, color: Color) {
+private fun SpreadsheetRowNumber(
+    number: Int,
+    color: Color,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
     Box(
         modifier = Modifier.width(42.dp).height(56.dp)
-            .background(color)
-            .border(1.dp, GridLine),
+            .background(if (selected) Color(0xFF1A73E8) else color)
+            .border(if (selected) 3.dp else 1.dp, if (selected) Color(0xFF0D47A1) else GridLine)
+            .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Text(number.toString(), color = Color.White, fontSize = 14.sp)
@@ -482,9 +783,8 @@ private fun SpreadsheetCell(
 
     Box(
         modifier = Modifier.width(width).height(56.dp)
-            .background(if (selected) Color(0xFFE8F0FE) else Color.White)
+            .background(if (selected) Color(0xFFD2E3FC) else Color.White)
             .border(if (selected) 2.dp else 1.dp, if (selected) Color(0xFF1A73E8) else GridLine)
-            .clickable { onSelect() }
             .padding(horizontal = 8.dp, vertical = 5.dp),
         contentAlignment = Alignment.CenterStart
     ) {
