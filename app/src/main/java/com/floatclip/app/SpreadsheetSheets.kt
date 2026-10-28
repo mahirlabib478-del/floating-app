@@ -1,5 +1,11 @@
 package com.floatclip.app
 
+import android.content.ContentValues
+import android.content.Context
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import java.io.File
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -116,8 +122,7 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
                 if (csv.isBlank()) {
                     ClipboardTools.toast(context, "No records to export.")
                 } else {
-                    ClipboardTools.copyText(context, "FloatClip Quick Text CSV", csv)
-                    ClipboardTools.toast(context, "CSV copied to clipboard.")
+                    exportCsv(context, "QuickText", csv)
                 }
             },
             onPalette = { paletteIndex = (paletteIndex + 1) % sheetPalettes.size }
@@ -223,8 +228,7 @@ fun SavedClipboardSpreadsheet(
                 if (csv.isBlank()) {
                     ClipboardTools.toast(context, "No records to export.")
                 } else {
-                    ClipboardTools.copyText(context, "FloatClip " + slot + " CSV", csv)
-                    ClipboardTools.toast(context, "CSV copied to clipboard.")
+                    exportCsv(context, slot, csv)
                 }
             },
             onPalette = { paletteIndex = (paletteIndex + 1) % sheetPalettes.size }
@@ -515,5 +519,38 @@ private fun buildCsv(rows: List<List<String>>): String {
         row.joinToString(",") { value ->
             "\"" + value.replace("\"", "\"\"") + "\""
         }
+    }
+}
+
+
+private fun exportCsv(context: Context, sheetName: String, csv: String) {
+    val fileName = "FloatClip_" + sheetName + "_" + System.currentTimeMillis() + ".csv"
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/csv")
+                put(
+                    MediaStore.MediaColumns.RELATIVE_PATH,
+                    Environment.DIRECTORY_DOWNLOADS + "/FloatClip"
+                )
+            }
+            val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: throw IllegalStateException("Could not create the CSV file.")
+            val output = context.contentResolver.openOutputStream(uri)
+                ?: throw IllegalStateException("Could not open the CSV file.")
+            output.bufferedWriter(Charsets.UTF_8).use { writer -> writer.write(csv) }
+            ClipboardTools.toast(context, "CSV saved to Downloads/FloatClip.")
+        } else {
+            val directory = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir
+            val file = File(directory, fileName)
+            file.writeText(csv, Charsets.UTF_8)
+            ClipboardTools.toast(context, "CSV saved: " + file.absolutePath)
+        }
+    } catch (exception: Exception) {
+        ClipboardTools.toast(
+            context,
+            "CSV export failed: " + (exception.message ?: "Unknown error")
+        )
     }
 }
