@@ -140,6 +140,7 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
     var rangeSelectMode by remember { mutableStateOf(false) }
     var rangeAnchor by remember { mutableStateOf<CellPosition?>(null) }
     var showPurgeDialog by remember { mutableStateOf(false) }
+    var pendingDeleteRows by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     val palette = sheetPalettes[paletteIndex]
     val rowCount = maxOf(16, items.size + 1)
     val rows = (0 until rowCount).map { index ->
@@ -408,6 +409,21 @@ fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipD
             selectedCellLabel = selection.label(4),
             rangeSelectMode = rangeSelectMode,
             onToggleRange = toggleRangeSelection,
+            onDeleteRows = {
+                if (selection.wholeColumn != null) {
+                    ClipboardTools.toast(context, "Select a row or cell first, not a whole column.")
+                } else if (items.isEmpty()) {
+                    ClipboardTools.toast(context, "There are no saved rows to delete.")
+                } else {
+                    val firstRow = selection.topRow().coerceAtLeast(0)
+                    val lastRow = selection.bottomRow(items.lastIndex).coerceAtMost(items.lastIndex)
+                    if (firstRow > items.lastIndex || lastRow < firstRow) {
+                        ClipboardTools.toast(context, "Select an existing row to delete.")
+                    } else {
+                        pendingDeleteRows = firstRow to lastRow
+                    }
+                }
+            },
             onCopySelection = {
                 val firstRow = selection.topRow()
                 val lastRow = selection.bottomRow(items.lastIndex.coerceAtLeast(0))
@@ -566,6 +582,47 @@ fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipD
         }
     }
 
+    pendingDeleteRows?.let { range ->
+        val rowCountToDelete = range.second - range.first + 1
+        AlertDialog(
+            onDismissRequest = { pendingDeleteRows = null },
+            title = { Text(if (rowCountToDelete == 1) "Delete selected row?" else "Delete selected rows?") },
+            text = {
+                Text(
+                    if (rowCountToDelete == 1) {
+                        "Delete Row ${range.first + 1}? This removes the entire row and all values in columns A–D."
+                    } else {
+                        "Delete ${rowCountToDelete} rows starting at Row ${range.first + 1}? All values in those rows will be removed."
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val (first, last) = range
+                    pendingDeleteRows = null
+                    scope.launch {
+                        editMutex.withLock {
+                            (first..last).mapNotNull { items.getOrNull(it)?.id }.forEach { id ->
+                                dao.deleteClipboardSheet(id)
+                            }
+                        }
+                        selection = SheetSelection(
+                            startRow = first.coerceAtMost((items.size - rowCountToDelete).coerceAtLeast(0)),
+                            startColumn = 0
+                        )
+                        ClipboardTools.toast(
+                            context,
+                            if (rowCountToDelete == 1) "Selected row deleted." else "$rowCountToDelete rows deleted."
+                        )
+                    }
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteRows = null }) { Text("Cancel") }
+            }
+        )
+    }
+
     if (showPurgeDialog) {
         AlertDialog(
             onDismissRequest = { showPurgeDialog = false },
@@ -592,6 +649,7 @@ private fun SheetToolbar(
     selectedCellLabel: String,
     rangeSelectMode: Boolean,
     onToggleRange: () -> Unit,
+    onDeleteRows: () -> Unit = {},
     onCopySelection: () -> Unit,
     onPaste: () -> Unit,
     onCopyColumn: (Int) -> Unit,
@@ -626,6 +684,19 @@ private fun SheetToolbar(
                 contentColor = Color.White
             )
         ) { Text(if (rangeSelectMode) "Pick End" else "Range", fontSize = 11.sp, maxLines = 1) }
+
+        if (columnCount == 4) {
+            Button(
+                onClick = onDeleteRows,
+                modifier = Modifier.width(72.dp).height(40.dp),
+                shape = RoundedCornerShape(5.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 0.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFB91C1C),
+                    contentColor = Color.White
+                )
+            ) { Text("Del Row", fontSize = 11.sp, maxLines = 1) }
+        }
 
         Button(
             onClick = onCopySelection,
