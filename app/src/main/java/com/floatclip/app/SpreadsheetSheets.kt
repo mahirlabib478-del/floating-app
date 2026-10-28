@@ -43,6 +43,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -85,6 +86,7 @@ private val columnNames = listOf("COL A", "COL B", "COL C", "COL D")
 @Composable
 fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     val horizontalState = rememberScrollState()
     val editMutex = remember { Mutex() }
@@ -114,6 +116,7 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
                 } else {
                     val pastedRows = parseClipboardGrid(clipboardText).map { it.firstOrNull().orEmpty() }
                     val startRow = selectedRow
+                    focusManager.clearFocus()
                     scope.launch {
                         editMutex.withLock {
                             pastedRows.forEachIndexed { offset, value ->
@@ -195,6 +198,7 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
 @Composable
 fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipDao) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     val horizontalState = rememberScrollState()
     val editMutex = remember { Mutex() }
@@ -221,6 +225,7 @@ fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipD
                     val grid = parseClipboardGrid(clipboardText)
                     val startRow = selectedRow
                     val startColumn = selectedColumn
+                    focusManager.clearFocus()
                     scope.launch {
                         editMutex.withLock {
                             grid.forEachIndexed { rowOffset, values ->
