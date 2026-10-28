@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -32,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -137,7 +139,7 @@ private fun FloatClipScreen(database: FloatClipDatabase) {
         }
 
         TabRow(selectedTabIndex = selectedTab) {
-            listOf("Quick Text", "Clipboard Sheet", "2FA").forEachIndexed { index, label ->
+            listOf("Quick Text", "Clipboard Sheet", "2FA", "Bubble").forEachIndexed { index, label ->
                 Tab(
                     selected = selectedTab == index,
                     onClick = { selectedTab = index },
@@ -150,9 +152,129 @@ private fun FloatClipScreen(database: FloatClipDatabase) {
             when (selectedTab) {
                 0 -> QuickTextSpreadsheet(quickTexts, dao)
                 1 -> ClipboardSheetSpreadsheet(clipboardItems, dao)
-                else -> TwoFactorSheet()
+                2 -> TwoFactorSheet()
+                else -> BubbleSettingsScreen()
             }
         }
+    }
+}
+
+
+@Composable
+private fun BubbleSettingsScreen() {
+    val context = LocalContext.current
+    val preferences = remember {
+        context.getSharedPreferences("floatclip_bubble", android.content.Context.MODE_PRIVATE)
+    }
+    var bubbleSize by remember { mutableStateOf(preferences.getInt("bubble_size_dp", 58).toFloat()) }
+    var bubbleOpacity by remember { mutableStateOf(preferences.getInt("bubble_opacity_percent", 75).toFloat()) }
+    val previewColor = Color(0xFF2563EB).copy(alpha = bubbleOpacity / 100f)
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("Floating Bubble Settings", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "Customize the FC bubble's size and transparency. The bubble stays circular.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF1F5F9))
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(110.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .height(bubbleSize.dp)
+                            .width(bubbleSize.dp)
+                            .background(previewColor, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "FC",
+                            color = Color.White,
+                            fontSize = (bubbleSize * 0.27f).sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                Text("Preview", style = MaterialTheme.typography.labelMedium)
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Bubble size", fontWeight = FontWeight.SemiBold)
+                Text("\${bubbleSize.toInt()} dp", color = MaterialTheme.colorScheme.primary)
+            }
+            Slider(
+                value = bubbleSize,
+                onValueChange = { bubbleSize = it },
+                valueRange = 40f..80f,
+                steps = 7
+            )
+            Text("Choose a size from 40 to 80 dp.", style = MaterialTheme.typography.bodySmall)
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Bubble opacity", fontWeight = FontWeight.SemiBold)
+                Text("\${bubbleOpacity.toInt()}%", color = MaterialTheme.colorScheme.primary)
+            }
+            Slider(
+                value = bubbleOpacity,
+                onValueChange = { bubbleOpacity = it },
+                valueRange = 25f..100f,
+                steps = 14
+            )
+            Text(
+                "Lower opacity makes the bubble more transparent.",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        Button(
+            onClick = {
+                preferences.edit()
+                    .putInt("bubble_size_dp", bubbleSize.toInt())
+                    .putInt("bubble_opacity_percent", bubbleOpacity.toInt())
+                    .apply()
+                context.sendBroadcast(
+                    Intent(FloatingBubbleService.ACTION_APPLY_SETTINGS)
+                        .setPackage(context.packageName)
+                )
+                ClipboardTools.toast(context, "Bubble appearance settings saved.")
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Apply Bubble Settings")
+        }
+
+        Text(
+            "If the bubble is currently running, the new appearance applies immediately. Otherwise, it applies the next time you start it.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
