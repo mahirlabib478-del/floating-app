@@ -45,6 +45,7 @@ class FloatingBubbleService : Service() {
     private var rootView: LinearLayout? = null
     private var actionPanel: LinearLayout? = null
     private var bubbleView: TextView? = null
+    private var actionButtons: List<TextView> = emptyList()
 
     private val preferences by lazy {
         getSharedPreferences("floatclip_bubble", Context.MODE_PRIVATE)
@@ -131,23 +132,28 @@ class FloatingBubbleService : Service() {
         val initialBubbleSize = bubbleSizeDp()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.START
+            gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
 
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
+            gravity = Gravity.CENTER_HORIZONTAL
             visibility = View.GONE
-            setPadding(dp(8), dp(8), dp(8), dp(2))
-            background = roundedBackground(Color.WHITE, dp(18), Color.rgb(226, 232, 240))
-            elevation = dp(8).toFloat()
+            setPadding(0, dp(4), 0, 0)
+            background = null
+            elevation = 0f
         }
-        panel.addView(actionButton("1   Copy Next", "#2563EB") { copyNextQuickText() })
-        panel.addView(actionButton("2   Save to A", "#0F766E") { saveClipboardTo("A") })
-        panel.addView(actionButton("3   Save to C", "#7C3AED") { saveClipboardTo("C") })
-        panel.addView(actionButton("4   Generate 2FA", "#B45309") { generateAndCopyTotp() })
-        panel.addView(actionButton("5   Close Bubble", "#475569") { stopSelf() })
+        val buttons = listOf(
+            actionButton("TXT", "#EC4899") { copyNextQuickText() },
+            actionButton("2FA", "#22D3EE") { generateAndCopyTotp() },
+            actionButton("A", "#EC4899") { saveClipboardTo("A") },
+            actionButton("B", "#EC4899") { saveClipboardTo("B") },
+            actionButton("C", "#EC4899") { saveClipboardTo("C") },
+            actionButton("💔", "#F87171") { stopSelf() }
+        )
+        buttons.forEach(panel::addView)
+        actionButtons = buttons
 
         val bubble = TextView(this).apply {
             text = "FC"
@@ -224,7 +230,7 @@ class FloatingBubbleService : Service() {
                             // WRAP_CONTENT can keep the old narrow overlay width after a
                             // GONE panel becomes visible on some Android launchers.
                             // Set the overlay width explicitly so every action button is visible.
-                            windowParams.width = dp(if (opening) maxOf(OPEN_PANEL_WIDTH_DP, bubbleSizeDp() + 16) else bubbleSizeDp() + ROOT_HORIZONTAL_PADDING_DP)
+                            windowParams.width = dp(bubbleSizeDp() + ROOT_HORIZONTAL_PADDING_DP)
                             panel.requestLayout()
                             root.requestLayout()
                             try {
@@ -261,32 +267,43 @@ class FloatingBubbleService : Service() {
     private fun bubbleOpacityPercent(): Int =
         preferences.getInt(KEY_BUBBLE_OPACITY_PERCENT, DEFAULT_BUBBLE_OPACITY_PERCENT).coerceIn(25, 100)
 
-    private fun bubbleBackground(): GradientDrawable {
+    private fun glassButtonBackground(): GradientDrawable {
         val alpha = (bubbleOpacityPercent() * 255 / 100).coerceIn(0, 255)
         return GradientDrawable().apply {
             shape = GradientDrawable.OVAL
-            setColor(Color.argb(alpha, 37, 99, 235))
-            setStroke(dp(1), Color.argb(220, 255, 255, 255))
+            setColor(Color.argb(alpha, 92, 96, 102))
+            setStroke(dp(2), Color.argb(230, 255, 255, 255))
         }
     }
 
-    private fun applyBubbleAppearance() {
-        val bubble = bubbleView ?: return
-        val size = bubbleSizeDp()
-        bubble.textSize = (size * 0.27f).coerceIn(12f, 22f)
-        bubble.background = bubbleBackground()
-        val layoutParams = bubble.layoutParams as? LinearLayout.LayoutParams
-            ?: LinearLayout.LayoutParams(dp(size), dp(size))
-        layoutParams.width = dp(size)
-        layoutParams.height = dp(size)
-        layoutParams.topMargin = dp(6)
-        bubble.layoutParams = layoutParams
+    private fun bubbleBackground(): GradientDrawable = glassButtonBackground()
 
-        val panelOpen = actionPanel?.visibility == View.VISIBLE
-        windowParams.width = dp(
-            if (panelOpen) maxOf(OPEN_PANEL_WIDTH_DP, size + 16)
-            else size + ROOT_HORIZONTAL_PADDING_DP
-        )
+    private fun applyBubbleAppearance() {
+        val size = bubbleSizeDp()
+        val bubble = bubbleView
+        if (bubble != null) {
+            bubble.textSize = (size * 0.27f).coerceIn(12f, 22f)
+            bubble.background = glassButtonBackground()
+            val bubbleLayout = bubble.layoutParams as? LinearLayout.LayoutParams
+                ?: LinearLayout.LayoutParams(dp(size), dp(size))
+            bubbleLayout.width = dp(size)
+            bubbleLayout.height = dp(size)
+            bubbleLayout.topMargin = dp(6)
+            bubble.layoutParams = bubbleLayout
+        }
+
+        actionButtons.forEach { button ->
+            button.textSize = (size * if (button.text == "2FA") 0.22f else 0.27f).coerceIn(11f, 20f)
+            button.background = glassButtonBackground()
+            val params = button.layoutParams as? LinearLayout.LayoutParams
+                ?: LinearLayout.LayoutParams(dp(size), dp(size))
+            params.width = dp(size)
+            params.height = dp(size)
+            params.bottomMargin = dp(8)
+            button.layoutParams = params
+        }
+
+        windowParams.width = dp(size + ROOT_HORIZONTAL_PADDING_DP)
         rootView?.requestLayout()
         try {
             rootView?.let { windowManager.updateViewLayout(it, windowParams) }
@@ -296,19 +313,28 @@ class FloatingBubbleService : Service() {
     }
 
     private fun actionButton(label: String, color: String, action: () -> Unit): TextView {
+        val size = bubbleSizeDp()
         return TextView(this).apply {
             text = label
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = roundedBackground(Color.parseColor(color), dp(12), Color.TRANSPARENT)
+            textSize = (size * if (label == "2FA") 0.22f else 0.27f).coerceIn(11f, 20f)
+            setTextColor(Color.parseColor(color))
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 0)
+            background = glassButtonBackground()
             isClickable = true
             isFocusable = true
-            elevation = dp(2).toFloat()
+            elevation = dp(5).toFloat()
+            contentDescription = when (label) {
+                "TXT" -> "Copy next Quick Text"
+                "2FA" -> "Generate and copy 2FA code"
+                "A" -> "Save clipboard text to Column A"
+                "B" -> "Save clipboard text to Column B"
+                "C" -> "Save clipboard text to Column C"
+                else -> "Close FloatClip bubble"
+            }
             setOnClickListener { action() }
-            layoutParams = LinearLayout.LayoutParams(dp(210), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(6)
+            layoutParams = LinearLayout.LayoutParams(dp(size), dp(size)).apply {
+                bottomMargin = dp(8)
             }
         }
     }
@@ -346,31 +372,19 @@ class FloatingBubbleService : Service() {
 
         serviceScope.launch {
             val dao = database.dao()
-            val rows = dao.getClipboardSheetOnce()
-            val targetIndex = if (slot == "A") {
-                rows.indexOfLast { it.colA.isNotBlank() } + 1
-            } else {
-                rows.indexOfLast { it.colC.isNotBlank() } + 1
+            // Every clipboard save creates a new row; earlier records are preserved.
+            val position = (dao.maxClipboardSheetPosition() ?: -1) + 1
+            val row = when (slot) {
+                "A" -> ClipboardSheetEntity(position = position, colA = content)
+                "B" -> ClipboardSheetEntity(position = position, colB = content)
+                else -> ClipboardSheetEntity(position = position, colC = content)
             }
-
-            if (targetIndex < rows.size) {
-                val target = rows[targetIndex]
-                val updated = if (slot == "A") target.copy(colA = content) else target.copy(colC = content)
-                dao.updateClipboardSheet(updated)
-            } else {
-                val position = (dao.maxClipboardSheetPosition() ?: -1) + 1
-                val row = if (slot == "A") {
-                    ClipboardSheetEntity(position = position, colA = content)
-                } else {
-                    ClipboardSheetEntity(position = position, colC = content)
-                }
-                dao.insertClipboardSheet(row)
-            }
+            dao.insertClipboardSheet(row)
 
             withContext(Dispatchers.Main) {
                 ClipboardTools.toast(
                     this@FloatingBubbleService,
-                    "Saved to Clipboard Sheet, column $slot. Previous rows are kept."
+                    "Saved to Clipboard Sheet, column $slot. Added as a new row."
                 )
             }
         }
@@ -422,6 +436,7 @@ class FloatingBubbleService : Service() {
         rootView = null
         actionPanel = null
         bubbleView = null
+        actionButtons = emptyList()
         if (settingsReceiverRegistered) {
             try {
                 unregisterReceiver(settingsReceiver)
@@ -447,6 +462,6 @@ class FloatingBubbleService : Service() {
         private const val DEFAULT_BUBBLE_SIZE_DP = 58
         private const val DEFAULT_BUBBLE_OPACITY_PERCENT = 75
         private const val ROOT_HORIZONTAL_PADDING_DP = 8
-        private const val OPEN_PANEL_WIDTH_DP = 250
+
     }
 }
