@@ -38,6 +38,17 @@ data class SavedClipboardEntity(
     @ColumnInfo(defaultValue = "''") val colD: String = ""
 )
 
+@Entity(tableName = "clipboard_sheet")
+data class ClipboardSheetEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(defaultValue = "0") val position: Int = 0,
+    @ColumnInfo(defaultValue = "''") val colA: String = "",
+    @ColumnInfo(defaultValue = "''") val colB: String = "",
+    @ColumnInfo(defaultValue = "''") val colC: String = "",
+    @ColumnInfo(defaultValue = "''") val colD: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
 @Dao
 interface FloatClipDao {
     @Query("SELECT * FROM quick_texts ORDER BY position ASC, id ASC")
@@ -90,11 +101,32 @@ interface FloatClipDao {
 
     @Query("SELECT COUNT(*) FROM saved_clipboard WHERE slot = :slot")
     suspend fun countSaved(slot: String): Int
+
+    @Query("SELECT * FROM clipboard_sheet ORDER BY position ASC, id ASC")
+    fun observeClipboardSheet(): Flow<List<ClipboardSheetEntity>>
+
+    @Query("SELECT * FROM clipboard_sheet ORDER BY position ASC, id ASC")
+    suspend fun getClipboardSheetOnce(): List<ClipboardSheetEntity>
+
+    @Query("SELECT MAX(position) FROM clipboard_sheet")
+    suspend fun maxClipboardSheetPosition(): Int?
+
+    @Insert
+    suspend fun insertClipboardSheet(item: ClipboardSheetEntity): Long
+
+    @Update
+    suspend fun updateClipboardSheet(item: ClipboardSheetEntity)
+
+    @Query("DELETE FROM clipboard_sheet WHERE id = :id")
+    suspend fun deleteClipboardSheet(id: Long)
+
+    @Query("DELETE FROM clipboard_sheet")
+    suspend fun deleteAllClipboardSheet()
 }
 
 @Database(
-    entities = [QuickTextEntity::class, SavedClipboardEntity::class],
-    version = 2,
+    entities = [QuickTextEntity::class, SavedClipboardEntity::class, ClipboardSheetEntity::class],
+    version = 3,
     exportSchema = false
 )
 abstract class FloatClipDatabase : RoomDatabase() {
@@ -117,6 +149,28 @@ abstract class FloatClipDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "CREATE TABLE IF NOT EXISTS clipboard_sheet (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "position INTEGER NOT NULL DEFAULT 0, " +
+                        "colA TEXT NOT NULL DEFAULT '', " +
+                        "colB TEXT NOT NULL DEFAULT '', " +
+                        "colC TEXT NOT NULL DEFAULT '', " +
+                        "colD TEXT NOT NULL DEFAULT '', " +
+                        "createdAt INTEGER NOT NULL)"
+                )
+                database.execSQL(
+                    "INSERT INTO clipboard_sheet (position, colA, colB, colC, colD, createdAt) " +
+                        "SELECT position, " +
+                        "MAX(CASE WHEN slot = 'A' THEN content ELSE '' END), '', " +
+                        "MAX(CASE WHEN slot = 'C' THEN content ELSE '' END), '', " +
+                        "MAX(createdAt) FROM saved_clipboard GROUP BY position ORDER BY position ASC"
+                )
+            }
+        }
+
         @Volatile
         private var instance: FloatClipDatabase? = null
 
@@ -127,7 +181,7 @@ abstract class FloatClipDatabase : RoomDatabase() {
                     FloatClipDatabase::class.java,
                     "floatclip.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }
