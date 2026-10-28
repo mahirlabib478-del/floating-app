@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -34,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -169,10 +172,13 @@ private fun BubbleSettingsScreen() {
     }
     var bubbleSize by remember { mutableStateOf(preferences.getInt("bubble_size_dp", 58).toFloat()) }
     var bubbleOpacity by remember { mutableStateOf(preferences.getInt("bubble_opacity_percent", 75).toFloat()) }
+    var showAButton by remember { mutableStateOf(preferences.getBoolean("show_bubble_button_a", true)) }
+    var showBButton by remember { mutableStateOf(preferences.getBoolean("show_bubble_button_b", true)) }
+    var showCButton by remember { mutableStateOf(preferences.getBoolean("show_bubble_button_c", true)) }
     val previewColor = Color(0xFF2563EB).copy(alpha = bubbleOpacity / 100f)
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Floating Bubble Settings", fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -254,11 +260,55 @@ private fun BubbleSettingsScreen() {
             )
         }
 
+        Text("Bubble Action Buttons", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "Choose which clipboard columns appear in the floating bubble. Changes apply when you tap Apply.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("A button", fontWeight = FontWeight.SemiBold)
+                Text("Save clipboard text to Column A", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(checked = showAButton, onCheckedChange = { showAButton = it })
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("B button", fontWeight = FontWeight.SemiBold)
+                Text("Save clipboard text to Column B", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(checked = showBButton, onCheckedChange = { showBButton = it })
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("C button", fontWeight = FontWeight.SemiBold)
+                Text("Save clipboard text to Column C", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(checked = showCButton, onCheckedChange = { showCButton = it })
+        }
+
         Button(
             onClick = {
                 preferences.edit()
                     .putInt("bubble_size_dp", bubbleSize.toInt())
                     .putInt("bubble_opacity_percent", bubbleOpacity.toInt())
+                    .putBoolean("show_bubble_button_a", showAButton)
+                    .putBoolean("show_bubble_button_b", showBButton)
+                    .putBoolean("show_bubble_button_c", showCButton)
                     .apply()
                 context.sendBroadcast(
                     Intent(FloatingBubbleService.ACTION_APPLY_SETTINGS)
