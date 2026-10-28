@@ -1,6 +1,7 @@
 package com.floatclip.app.data
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -21,8 +22,8 @@ data class QuickTextEntity(
     val content: String,
     val position: Int,
     val createdAt: Long = System.currentTimeMillis(),
-    val colC: String = "",
-    val colD: String = ""
+    @ColumnInfo(defaultValue = "''") val colC: String = "",
+    @ColumnInfo(defaultValue = "''") val colD: String = ""
 )
 
 @Entity(tableName = "saved_clipboard")
@@ -31,10 +32,10 @@ data class SavedClipboardEntity(
     val slot: String,
     val content: String,
     val createdAt: Long = System.currentTimeMillis(),
-    val position: Int = 0,
-    val colB: String = "",
-    val colC: String = "",
-    val colD: String = ""
+    @ColumnInfo(defaultValue = "0") val position: Int = 0,
+    @ColumnInfo(defaultValue = "''") val colB: String = "",
+    @ColumnInfo(defaultValue = "''") val colC: String = "",
+    @ColumnInfo(defaultValue = "''") val colD: String = ""
 )
 
 @Dao
