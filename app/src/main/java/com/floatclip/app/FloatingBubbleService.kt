@@ -22,8 +22,8 @@ import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
+import com.floatclip.app.data.ClipboardSheetEntity
 import com.floatclip.app.data.FloatClipDatabase
-import com.floatclip.app.data.SavedClipboardEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -282,11 +282,19 @@ class FloatingBubbleService : Service() {
         }
 
         serviceScope.launch {
-            val position = (database.dao().maxSavedPosition(slot) ?: -1) + 1
-            database.dao().insertSaved(SavedClipboardEntity(slot = slot, content = content, position = position))
-            val count = database.dao().countSaved(slot)
+            val dao = database.dao()
+            val position = (dao.maxClipboardSheetPosition() ?: -1) + 1
+            val row = if (slot == "A") {
+                ClipboardSheetEntity(position = position, colA = content)
+            } else {
+                ClipboardSheetEntity(position = position, colC = content)
+            }
+            dao.insertClipboardSheet(row)
             withContext(Dispatchers.Main) {
-                ClipboardTools.toast(this@FloatingBubbleService, "Saved as a new row in $slot Sheet (#$count)")
+                ClipboardTools.toast(
+                    this@FloatingBubbleService,
+                    "Saved as a new row in Clipboard Sheet, column $slot."
+                )
             }
         }
     }
