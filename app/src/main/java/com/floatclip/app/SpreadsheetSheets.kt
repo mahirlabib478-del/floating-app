@@ -140,7 +140,6 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
     var rangeSelectMode by remember { mutableStateOf(false) }
     var rangeAnchor by remember { mutableStateOf<CellPosition?>(null) }
     var showPurgeDialog by remember { mutableStateOf(false) }
-    var pendingDeleteRows by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     val palette = sheetPalettes[paletteIndex]
     val rowCount = maxOf(16, items.size + 1)
     val rows = (0 until rowCount).map { index ->
@@ -351,6 +350,7 @@ fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipD
     var rangeSelectMode by remember { mutableStateOf(false) }
     var rangeAnchor by remember { mutableStateOf<CellPosition?>(null) }
     var showPurgeDialog by remember { mutableStateOf(false) }
+    var pendingDeleteRows by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     val palette = sheetPalettes[paletteIndex]
     val rowCount = maxOf(16, items.size + 1)
     val rows = (0 until rowCount).map { index ->
