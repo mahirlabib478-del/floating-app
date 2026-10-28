@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -93,44 +95,49 @@ private fun FloatClipScreen(database: FloatClipDatabase) {
     val context = LocalContext.current
     val dao = remember(database) { database.dao() }
     val quickTexts by dao.observeQuickTexts().collectAsState(initial = emptyList())
-    val aItems by dao.observeSaved("A").collectAsState(initial = emptyList())
-    val cItems by dao.observeSaved("C").collectAsState(initial = emptyList())
+    val clipboardItems by dao.observeClipboardSheet().collectAsState(initial = emptyList())
     var selectedTab by remember { mutableStateOf(0) }
 
-    Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+    ) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(38.dp).padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("FloatClip", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Button(
-                onClick = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
-                        ClipboardTools.toast(context, "Allow Display over other apps, then return and tap Start Bubble again.")
-                        context.startActivity(
-                            Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:" + context.packageName)
-                            )
+            Text("FloatClip", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        }
+
+        Button(
+            onClick = {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+                    ClipboardTools.toast(context, "Allow Display over other apps, then return and tap Start Floating Bubble again.")
+                    context.startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:" + context.packageName)
                         )
-                    } else {
-                        ContextCompat.startForegroundService(
-                            context,
-                            Intent(context, FloatingBubbleService::class.java)
-                        )
-                        ClipboardTools.toast(context, "FloatClip bubble started.")
-                    }
-                },
-                modifier = Modifier.height(32.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
-            ) {
-                Text("Start Bubble", fontSize = 12.sp)
-            }
+                    )
+                } else {
+                    ContextCompat.startForegroundService(
+                        context,
+                        Intent(context, FloatingBubbleService::class.java)
+                    )
+                    ClipboardTools.toast(context, "FloatClip bubble started.")
+                }
+            },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp).height(40.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+        ) {
+            Text("Start Floating Bubble", fontSize = 14.sp)
         }
 
         TabRow(selectedTabIndex = selectedTab) {
-            listOf("Quick Text", "A Sheet", "C Sheet", "2FA").forEachIndexed { index, label ->
+            listOf("Quick Text", "Clipboard Sheet", "2FA").forEachIndexed { index, label ->
                 Tab(
                     selected = selectedTab == index,
                     onClick = { selectedTab = index },
@@ -142,8 +149,7 @@ private fun FloatClipScreen(database: FloatClipDatabase) {
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             when (selectedTab) {
                 0 -> QuickTextSpreadsheet(quickTexts, dao)
-                1 -> SavedClipboardSpreadsheet("A", aItems, dao)
-                2 -> SavedClipboardSpreadsheet("C", cItems, dao)
+                1 -> ClipboardSheetSpreadsheet(clipboardItems, dao)
                 else -> TwoFactorSheet()
             }
         }
