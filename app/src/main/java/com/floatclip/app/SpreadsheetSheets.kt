@@ -5,7 +5,6 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import java.io.File
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -49,16 +48,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.floatclip.app.data.ClipboardSheetEntity
 import com.floatclip.app.data.FloatClipDao
 import com.floatclip.app.data.QuickTextEntity
-import com.floatclip.app.data.SavedClipboardEntity
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.io.File
 
 private val GridLine = Color(0xFFB8C2C7)
 private val GridText = Color(0xFF202124)
-private val RowHeaderPink = Color(0xFFE91E63)
 
 private data class SheetPalette(
     val rowHeader: Color,
@@ -81,7 +80,6 @@ private val sheetPalettes = listOf(
 )
 
 private val columnNames = listOf("COL A", "COL B", "COL C", "COL D")
-private val columnWidths = listOf(150.dp, 150.dp, 150.dp, 150.dp)
 
 @Composable
 fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
@@ -105,59 +103,47 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
     Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
         SheetToolbar(
             palette = palette,
-            onCopyColumn = { column ->
-                val values = items.map { quickCell(it, column) }
-                if (values.none { it.isNotBlank() }) {
-                    ClipboardTools.toast(context, "Column " + columnNames[column].last() + " is empty.")
+            columnCount = 1,
+            onCopyColumn = {
+                val values = items.map { it.content }.filter { it.isNotBlank() }
+                if (values.isEmpty()) {
+                    ClipboardTools.toast(context, "Column A is empty.")
                 } else {
-                    ClipboardTools.copyText(context, "FloatClip " + columnNames[column], values.joinToString("\n"))
-                    ClipboardTools.toast(context, "Column " + columnNames[column].last() + " copied.")
+                    ClipboardTools.copyText(context, "FloatClip Quick Text", values.joinToString("\n"))
+                    ClipboardTools.toast(context, "Column A copied.")
                 }
             },
             onCsv = {
                 val csv = buildCsv(
-                    items.filter { it.title.isNotBlank() || it.content.isNotBlank() || it.colC.isNotBlank() || it.colD.isNotBlank() }
-                        .map { listOf(it.title, it.content, it.colC, it.colD) }
+                    listOf("COL A"),
+                    items.filter { it.content.isNotBlank() }.map { listOf(it.content) }
                 )
-                if (csv.isBlank()) {
-                    ClipboardTools.toast(context, "No records to export.")
-                } else {
-                    exportCsv(context, "QuickText", csv)
-                }
+                if (csv.isBlank()) ClipboardTools.toast(context, "No records to export.")
+                else exportCsv(context, "QuickText", csv)
             },
             onPalette = { paletteIndex = (paletteIndex + 1) % sheetPalettes.size }
         )
 
         PurgeAllButton(onClick = { showPurgeDialog = true })
+        SpreadsheetHeader(horizontalState, palette, columnCount = 1)
 
-        SpreadsheetHeader(
-            horizontalState = horizontalState,
-            palette = palette
-        )
-
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth().weight(1f)
-        ) {
+        LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
             itemsIndexed(rows, key = { index, _ -> index }) { index, item ->
                 Row(verticalAlignment = Alignment.Top) {
                     SpreadsheetRowNumber(index + 1, palette.rowHeader)
                     Row(modifier = Modifier.horizontalScroll(horizontalState)) {
-                        for (column in 0..3) {
-                            SpreadsheetCell(
-                                rowIndex = index,
-                                columnIndex = column,
-                                value = quickCell(item, column),
-                                width = columnWidths[column],
-                                accent = palette.columns[column],
-                                onValueChange = { value ->
-                                    scope.launch {
-                                        editMutex.withLock {
-                                            updateQuickCell(dao, index, column, value)
-                                        }
-                                    }
+                        SpreadsheetCell(
+                            rowIndex = index,
+                            columnIndex = 0,
+                            value = item.content,
+                            width = 310.dp,
+                            accent = palette.columns[0],
+                            onValueChange = { value ->
+                                scope.launch {
+                                    editMutex.withLock { updateQuickTextCell(dao, index, value) }
                                 }
-                            )
-                        }
+                            }
+                        )
                     }
                 }
             }
@@ -178,19 +164,13 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
                     }
                 }) { Text("Purge all") }
             },
-            dismissButton = {
-                TextButton(onClick = { showPurgeDialog = false }) { Text("Cancel") }
-            }
+            dismissButton = { TextButton(onClick = { showPurgeDialog = false }) { Text("Cancel") } }
         )
     }
 }
 
 @Composable
-fun SavedClipboardSpreadsheet(
-    slot: String,
-    items: List<SavedClipboardEntity>,
-    dao: FloatClipDao
-) {
+fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipDao) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val horizontalState = rememberScrollState()
@@ -200,50 +180,44 @@ fun SavedClipboardSpreadsheet(
     val palette = sheetPalettes[paletteIndex]
     val rowCount = maxOf(16, items.size + 1)
     val rows = (0 until rowCount).map { index ->
-        items.getOrNull(index) ?: SavedClipboardEntity(
-            id = -(index + 1L),
-            slot = slot,
-            content = "",
-            position = index
-        )
+        items.getOrNull(index) ?: ClipboardSheetEntity(position = index)
     }
 
     Column(modifier = Modifier.fillMaxSize().background(Color.White)) {
         SheetToolbar(
             palette = palette,
+            columnCount = 4,
             onCopyColumn = { column ->
-                val values = items.map { savedCell(it, column) }
-                if (values.none { it.isNotBlank() }) {
+                val values = items.map { clipboardCell(it, column) }.filter { it.isNotBlank() }
+                if (values.isEmpty()) {
                     ClipboardTools.toast(context, "Column " + columnNames[column].last() + " is empty.")
                 } else {
-                    ClipboardTools.copyText(context, "FloatClip " + slot + " " + columnNames[column], values.joinToString("\n"))
+                    ClipboardTools.copyText(
+                        context,
+                        "FloatClip " + columnNames[column],
+                        values.joinToString("\n")
+                    )
                     ClipboardTools.toast(context, "Column " + columnNames[column].last() + " copied.")
                 }
             },
             onCsv = {
                 val csv = buildCsv(
-                    items.filter { it.content.isNotBlank() || it.colB.isNotBlank() || it.colC.isNotBlank() || it.colD.isNotBlank() }
-                        .map { listOf(it.content, it.colB, it.colC, it.colD) }
+                    columnNames,
+                    items.filter {
+                        it.colA.isNotBlank() || it.colB.isNotBlank() ||
+                            it.colC.isNotBlank() || it.colD.isNotBlank()
+                    }.map { listOf(it.colA, it.colB, it.colC, it.colD) }
                 )
-                if (csv.isBlank()) {
-                    ClipboardTools.toast(context, "No records to export.")
-                } else {
-                    exportCsv(context, slot, csv)
-                }
+                if (csv.isBlank()) ClipboardTools.toast(context, "No records to export.")
+                else exportCsv(context, "ClipboardSheet", csv)
             },
             onPalette = { paletteIndex = (paletteIndex + 1) % sheetPalettes.size }
         )
 
         PurgeAllButton(onClick = { showPurgeDialog = true })
+        SpreadsheetHeader(horizontalState, palette, columnCount = 4)
 
-        SpreadsheetHeader(
-            horizontalState = horizontalState,
-            palette = palette
-        )
-
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth().weight(1f)
-        ) {
+        LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
             itemsIndexed(rows, key = { index, _ -> index }) { index, item ->
                 Row(verticalAlignment = Alignment.Top) {
                     SpreadsheetRowNumber(index + 1, palette.rowHeader)
@@ -252,13 +226,13 @@ fun SavedClipboardSpreadsheet(
                             SpreadsheetCell(
                                 rowIndex = index,
                                 columnIndex = column,
-                                value = savedCell(item, column),
-                                width = columnWidths[column],
+                                value = clipboardCell(item, column),
+                                width = 150.dp,
                                 accent = palette.columns[column],
                                 onValueChange = { value ->
                                     scope.launch {
                                         editMutex.withLock {
-                                            updateSavedCell(dao, slot, index, column, value)
+                                            updateClipboardCell(dao, index, column, value)
                                         }
                                     }
                                 }
@@ -274,19 +248,17 @@ fun SavedClipboardSpreadsheet(
         AlertDialog(
             onDismissRequest = { showPurgeDialog = false },
             title = { Text("Purge all records?") },
-            text = { Text("This permanently deletes every row in the " + slot + " Sheet. This action cannot be undone.") },
+            text = { Text("This permanently deletes every row in the Clipboard Sheet. This action cannot be undone.") },
             confirmButton = {
                 TextButton(onClick = {
                     showPurgeDialog = false
                     scope.launch {
-                        dao.deleteAllSaved(slot)
-                        ClipboardTools.toast(context, "All " + slot + " Sheet records deleted.")
+                        dao.deleteAllClipboardSheet()
+                        ClipboardTools.toast(context, "All Clipboard Sheet records deleted.")
                     }
                 }) { Text("Purge all") }
             },
-            dismissButton = {
-                TextButton(onClick = { showPurgeDialog = false }) { Text("Cancel") }
-            }
+            dismissButton = { TextButton(onClick = { showPurgeDialog = false }) { Text("Cancel") } }
         )
     }
 }
@@ -294,21 +266,24 @@ fun SavedClipboardSpreadsheet(
 @Composable
 private fun SheetToolbar(
     palette: SheetPalette,
+    columnCount: Int,
     onCopyColumn: (Int) -> Unit,
     onCsv: () -> Unit,
     onPalette: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        for (column in 0..3) {
+        for (column in 0 until columnCount) {
             Button(
                 onClick = { onCopyColumn(column) },
-                modifier = Modifier.width(72.dp).height(40.dp),
+                modifier = Modifier.width(if (columnCount == 1) 82.dp else 64.dp).height(40.dp),
                 shape = RoundedCornerShape(5.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 3.dp, vertical = 0.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 0.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = palette.columns[column],
                     contentColor = Color.White
@@ -319,7 +294,7 @@ private fun SheetToolbar(
         }
         Button(
             onClick = onCsv,
-            modifier = Modifier.width(56.dp).height(40.dp),
+            modifier = Modifier.width(48.dp).height(40.dp),
             shape = RoundedCornerShape(5.dp),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 0.dp),
             colors = ButtonDefaults.buttonColors(
@@ -330,7 +305,7 @@ private fun SheetToolbar(
 
         Button(
             onClick = onPalette,
-            modifier = Modifier.width(44.dp).height(40.dp),
+            modifier = Modifier.width(40.dp).height(40.dp),
             shape = RoundedCornerShape(5.dp),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
             colors = ButtonDefaults.buttonColors(
@@ -360,12 +335,10 @@ private fun PurgeAllButton(onClick: () -> Unit) {
 @Composable
 private fun SpreadsheetHeader(
     horizontalState: androidx.compose.foundation.ScrollState,
-    palette: SheetPalette
+    palette: SheetPalette,
+    columnCount: Int
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier.width(42.dp).height(46.dp)
                 .background(palette.rowHeader)
@@ -375,9 +348,11 @@ private fun SpreadsheetHeader(
             Text("#", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         }
         Row(modifier = Modifier.horizontalScroll(horizontalState)) {
-            for (column in 0..3) {
+            for (column in 0 until columnCount) {
                 Box(
-                    modifier = Modifier.width(columnWidths[column]).height(46.dp)
+                    modifier = Modifier
+                        .width(if (columnCount == 1) 310.dp else 150.dp)
+                        .height(46.dp)
                         .background(palette.columns[column])
                         .border(1.dp, GridLine),
                     contentAlignment = Alignment.Center
@@ -438,90 +413,59 @@ private fun SpreadsheetCell(
                 onValueChange(it)
             },
             modifier = Modifier.fillMaxWidth().onFocusChanged { isFocused = it.isFocused },
-            textStyle = TextStyle(
-                color = GridText,
-                fontSize = 14.sp,
-                lineHeight = 18.sp
-            ),
+            textStyle = TextStyle(color = GridText, fontSize = 14.sp, lineHeight = 18.sp),
             cursorBrush = SolidColor(accent),
             maxLines = 3
         )
     }
 }
 
-private fun quickCell(item: QuickTextEntity, column: Int): String = when (column) {
-    0 -> item.title
-    1 -> item.content
-    2 -> item.colC
-    else -> item.colD
+private suspend fun updateQuickTextCell(dao: FloatClipDao, rowIndex: Int, value: String) {
+    var rows = dao.getQuickTextsOnce()
+    while (rows.size <= rowIndex) {
+        val position = (dao.maxQuickTextPosition() ?: -1) + 1
+        dao.insertQuickText(QuickTextEntity(title = "", content = "", position = position))
+        rows = dao.getQuickTextsOnce()
+    }
+    val row = rows[rowIndex]
+    dao.updateQuickText(row.copy(title = value.take(40), content = value))
 }
 
-private fun savedCell(item: SavedClipboardEntity, column: Int): String = when (column) {
-    0 -> item.content
+private fun clipboardCell(item: ClipboardSheetEntity, column: Int): String = when (column) {
+    0 -> item.colA
     1 -> item.colB
     2 -> item.colC
     else -> item.colD
 }
 
-private suspend fun updateQuickCell(
+private suspend fun updateClipboardCell(
     dao: FloatClipDao,
     rowIndex: Int,
     column: Int,
     value: String
 ) {
-    var rows = dao.getQuickTextsOnce()
+    var rows = dao.getClipboardSheetOnce()
     while (rows.size <= rowIndex) {
-        val position = (dao.maxQuickTextPosition() ?: -1) + 1
-        dao.insertQuickText(
-            QuickTextEntity(title = "", content = "", position = position)
-        )
-        rows = dao.getQuickTextsOnce()
+        val position = (dao.maxClipboardSheetPosition() ?: -1) + 1
+        dao.insertClipboardSheet(ClipboardSheetEntity(position = position))
+        rows = dao.getClipboardSheetOnce()
     }
     val row = rows[rowIndex]
     val updated = when (column) {
-        0 -> row.copy(title = value)
-        1 -> row.copy(content = value)
-        2 -> row.copy(colC = value)
-        else -> row.copy(colD = value)
-    }
-    dao.updateQuickText(updated)
-}
-
-private suspend fun updateSavedCell(
-    dao: FloatClipDao,
-    slot: String,
-    rowIndex: Int,
-    column: Int,
-    value: String
-) {
-    var rows = dao.getSavedOnce(slot)
-    while (rows.size <= rowIndex) {
-        val position = (dao.maxSavedPosition(slot) ?: -1) + 1
-        dao.insertSaved(
-            SavedClipboardEntity(slot = slot, content = "", position = position)
-        )
-        rows = dao.getSavedOnce(slot)
-    }
-    val row = rows[rowIndex]
-    val updated = when (column) {
-        0 -> row.copy(content = value)
+        0 -> row.copy(colA = value)
         1 -> row.copy(colB = value)
         2 -> row.copy(colC = value)
         else -> row.copy(colD = value)
     }
-    dao.updateSaved(updated)
+    dao.updateClipboardSheet(updated)
 }
 
-private fun buildCsv(rows: List<List<String>>): String {
+private fun buildCsv(headers: List<String>, rows: List<List<String>>): String {
     if (rows.isEmpty()) return ""
-    val allRows = listOf(columnNames) + rows
-    return allRows.joinToString("\n") { row ->
-        row.joinToString(",") { value ->
-            "\"" + value.replace("\"", "\"\"") + "\""
-        }
+    return (listOf(headers) + rows).joinToString("\n") { row ->
+        row.joinToString(",") { value -> "\"" + value.replace("\"", "\"\"") + "\"" }
     }
 }
-
 
 private fun exportCsv(context: Context, sheetName: String, csv: String) {
     val fileName = "FloatClip_" + sheetName + "_" + System.currentTimeMillis() + ".csv"
@@ -548,9 +492,6 @@ private fun exportCsv(context: Context, sheetName: String, csv: String) {
             ClipboardTools.toast(context, "CSV saved: " + file.absolutePath)
         }
     } catch (exception: Exception) {
-        ClipboardTools.toast(
-            context,
-            "CSV export failed: " + (exception.message ?: "Unknown error")
-        )
+        ClipboardTools.toast(context, "CSV export failed: " + (exception.message ?: "Unknown error"))
     }
 }
