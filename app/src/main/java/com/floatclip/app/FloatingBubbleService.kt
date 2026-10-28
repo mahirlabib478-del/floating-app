@@ -144,16 +144,9 @@ class FloatingBubbleService : Service() {
             background = null
             elevation = 0f
         }
-        val buttons = listOf(
-            actionButton("TXT", "#EC4899") { copyNextQuickText() },
-            actionButton("2FA", "#22D3EE") { generateAndCopyTotp() },
-            actionButton("A", "#EC4899") { saveClipboardTo("A") },
-            actionButton("B", "#EC4899") { saveClipboardTo("B") },
-            actionButton("C", "#EC4899") { saveClipboardTo("C") },
-            actionButton("💔", "#F87171") { stopSelf() }
-        )
-        buttons.forEach(panel::addView)
-        actionButtons = buttons
+        actionPanel = panel
+        actionButtons = createActionButtons()
+        actionButtons.forEach(panel::addView)
 
         val bubble = TextView(this).apply {
             text = "FC"
@@ -292,6 +285,11 @@ class FloatingBubbleService : Service() {
             bubble.layoutParams = bubbleLayout
         }
 
+        actionPanel?.let { panel ->
+            panel.removeAllViews()
+            actionButtons = createActionButtons()
+            actionButtons.forEach(panel::addView)
+        }
         actionButtons.forEach { button ->
             button.textSize = (size * if (button.text == "2FA") 0.22f else 0.27f).coerceIn(11f, 20f)
             button.background = glassButtonBackground()
@@ -310,6 +308,24 @@ class FloatingBubbleService : Service() {
         } catch (_: IllegalArgumentException) {
             // The overlay may be closing while settings are being applied.
         }
+    }
+
+    private fun createActionButtons(): List<TextView> {
+        val buttons = mutableListOf(
+            actionButton("TXT", "#EC4899") { copyNextQuickText() },
+            actionButton("2FA", "#22D3EE") { generateAndCopyTotp() }
+        )
+        if (preferences.getBoolean(KEY_SHOW_BUTTON_A, true)) {
+            buttons.add(actionButton("A", "#EC4899") { saveClipboardTo("A") })
+        }
+        if (preferences.getBoolean(KEY_SHOW_BUTTON_B, true)) {
+            buttons.add(actionButton("B", "#EC4899") { saveClipboardTo("B") })
+        }
+        if (preferences.getBoolean(KEY_SHOW_BUTTON_C, true)) {
+            buttons.add(actionButton("C", "#EC4899") { saveClipboardTo("C") })
+        }
+        buttons.add(actionButton("💔", "#F87171") { stopSelf() })
+        return buttons
     }
 
     private fun actionButton(label: String, color: String, action: () -> Unit): TextView {
@@ -459,6 +475,9 @@ class FloatingBubbleService : Service() {
         const val ACTION_APPLY_SETTINGS = "com.floatclip.app.ACTION_APPLY_BUBBLE_SETTINGS"
         private const val KEY_BUBBLE_SIZE_DP = "bubble_size_dp"
         private const val KEY_BUBBLE_OPACITY_PERCENT = "bubble_opacity_percent"
+        private const val KEY_SHOW_BUTTON_A = "show_bubble_button_a"
+        private const val KEY_SHOW_BUTTON_B = "show_bubble_button_b"
+        private const val KEY_SHOW_BUTTON_C = "show_bubble_button_c"
         private const val DEFAULT_BUBBLE_SIZE_DP = 58
         private const val DEFAULT_BUBBLE_OPACITY_PERCENT = 75
         private const val ROOT_HORIZONTAL_PADDING_DP = 8
