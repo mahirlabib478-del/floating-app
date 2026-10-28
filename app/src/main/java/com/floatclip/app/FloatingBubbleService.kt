@@ -283,17 +283,31 @@ class FloatingBubbleService : Service() {
 
         serviceScope.launch {
             val dao = database.dao()
-            val position = (dao.maxClipboardSheetPosition() ?: -1) + 1
-            val row = if (slot == "A") {
-                ClipboardSheetEntity(position = position, colA = content)
+            val rows = dao.getClipboardSheetOnce()
+            val targetIndex = if (slot == "A") {
+                rows.indexOfLast { it.colA.isNotBlank() } + 1
             } else {
-                ClipboardSheetEntity(position = position, colC = content)
+                rows.indexOfLast { it.colC.isNotBlank() } + 1
             }
-            dao.insertClipboardSheet(row)
+
+            if (targetIndex < rows.size) {
+                val target = rows[targetIndex]
+                val updated = if (slot == "A") target.copy(colA = content) else target.copy(colC = content)
+                dao.updateClipboardSheet(updated)
+            } else {
+                val position = (dao.maxClipboardSheetPosition() ?: -1) + 1
+                val row = if (slot == "A") {
+                    ClipboardSheetEntity(position = position, colA = content)
+                } else {
+                    ClipboardSheetEntity(position = position, colC = content)
+                }
+                dao.insertClipboardSheet(row)
+            }
+
             withContext(Dispatchers.Main) {
                 ClipboardTools.toast(
                     this@FloatingBubbleService,
-                    "Saved as a new row in Clipboard Sheet, column $slot."
+                    "Saved to Clipboard Sheet, column $slot. Previous rows are kept."
                 )
             }
         }
