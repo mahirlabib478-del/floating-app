@@ -5,7 +5,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.IntentFilter
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Color
@@ -48,9 +50,24 @@ class FloatingBubbleService : Service() {
         getSharedPreferences("floatclip_bubble", Context.MODE_PRIVATE)
     }
 
+    private var settingsReceiverRegistered = false
+    private val settingsReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ACTION_APPLY_SETTINGS) applyBubbleAppearance()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         database = FloatClipDatabase.get(this)
+        val filter = IntentFilter(ACTION_APPLY_SETTINGS)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(settingsReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(settingsReceiver, filter)
+        }
+        settingsReceiverRegistered = true
         startAsForeground()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
             ClipboardTools.toast(this, "Allow Display over other apps to use the bubble.")
@@ -111,6 +128,7 @@ class FloatingBubbleService : Service() {
         if (rootView != null) return
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val initialBubbleSize = bubbleSizeDp()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.START
@@ -133,26 +151,24 @@ class FloatingBubbleService : Service() {
 
         val bubble = TextView(this).apply {
             text = "FC"
-            textSize = 16f
+            textSize = (initialBubbleSize * 0.27f).coerceIn(12f, 22f)
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            background = roundedBackground(Color.rgb(37, 99, 235), dp(58), Color.WHITE).apply {
-                shape = GradientDrawable.OVAL
-            }
+            background = bubbleBackground()
             elevation = dp(8).toFloat()
             contentDescription = "FloatClip floating menu"
         }
 
         root.addView(
             bubble,
-            LinearLayout.LayoutParams(dp(58), dp(58)).apply {
+            LinearLayout.LayoutParams(dp(initialBubbleSize), dp(initialBubbleSize)).apply {
                 topMargin = dp(6)
             }
         )
         root.addView(panel)
 
         windowParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            dp(initialBubbleSize + ROOT_HORIZONTAL_PADDING_DP),
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -208,7 +224,7 @@ class FloatingBubbleService : Service() {
                             // WRAP_CONTENT can keep the old narrow overlay width after a
                             // GONE panel becomes visible on some Android launchers.
                             // Set the overlay width explicitly so every action button is visible.
-                            windowParams.width = dp(if (opening) OPEN_PANEL_WIDTH_DP else CLOSED_PANEL_WIDTH_DP)
+                            windowParams.width = dp(if (opening) maxOf(OPEN_PANEL_WIDTH_DP, bubbleSizeDp() + 16) else bubbleSizeDp() + ROOT_HORIZONTAL_PADDING_DP)
                             panel.requestLayout()
                             root.requestLayout()
                             try {
@@ -235,6 +251,47 @@ class FloatingBubbleService : Service() {
             bubbleView = null
             ClipboardTools.toast(this, "Could not show bubble: " + (exception.message ?: "overlay error"))
             stopSelf()
+        }
+    }
+
+
+    private fun bubbleSizeDp(): Int =
+        preferences.getInt(KEY_BUBBLE_SIZE_DP, DEFAULT_BUBBLE_SIZE_DP).coerceIn(40, 80)
+
+    private fun bubbleOpacityPercent(): Int =
+        preferences.getInt(KEY_BUBBLE_OPACITY_PERCENT, DEFAULT_BUBBLE_OPACITY_PERCENT).coerceIn(25, 100)
+
+    private fun bubbleBackground(): GradientDrawable {
+        val alpha = (bubbleOpacityPercent() * 255 / 100).coerceIn(0, 255)
+        return GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.argb(alpha, 37, 99, 235))
+            setStroke(dp(1), Color.argb(220, 255, 255, 255))
+        }
+    }
+
+    private fun applyBubbleAppearance() {
+        val bubble = bubbleView ?: return
+        val size = bubbleSizeDp()
+        bubble.textSize = (size * 0.27f).coerceIn(12f, 22f)
+        bubble.background = bubbleBackground()
+        val layoutParams = bubble.layoutParams as? LinearLayout.LayoutParams
+            ?: LinearLayout.LayoutParams(dp(size), dp(size))
+        layoutParams.width = dp(size)
+        layoutParams.height = dp(size)
+        layoutParams.topMargin = dp(6)
+        bubble.layoutParams = layoutParams
+
+        val panelOpen = actionPanel?.visibility == View.VISIBLE
+        windowParams.width = dp(
+            if (panelOpen) maxOf(OPEN_PANEL_WIDTH_DP, size + 16)
+            else size + ROOT_HORIZONTAL_PADDING_DP
+        )
+        rootView?.requestLayout()
+        try {
+            rootView?.let { windowManager.updateViewLayout(it, windowParams) }
+        } catch (_: IllegalArgumentException) {
+            // The overlay may be closing while settings are being applied.
         }
     }
 
@@ -365,6 +422,14 @@ class FloatingBubbleService : Service() {
         rootView = null
         actionPanel = null
         bubbleView = null
+        if (settingsReceiverRegistered) {
+            try {
+                unregisterReceiver(settingsReceiver)
+            } catch (_: IllegalArgumentException) {
+                // Receiver may already be unregistered during shutdown.
+            }
+            settingsReceiverRegistered = false
+        }
         serviceScope.cancel()
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
@@ -376,7 +441,12 @@ class FloatingBubbleService : Service() {
         private const val CHANNEL_ID = "floatclip_bubble"
         private const val NOTIFICATION_ID = 4102
         private const val KEY_LAST_QUICK_TEXT_ID = "last_quick_text_id"
-        private const val CLOSED_PANEL_WIDTH_DP = 70
+        const val ACTION_APPLY_SETTINGS = "com.floatclip.app.ACTION_APPLY_BUBBLE_SETTINGS"
+        private const val KEY_BUBBLE_SIZE_DP = "bubble_size_dp"
+        private const val KEY_BUBBLE_OPACITY_PERCENT = "bubble_opacity_percent"
+        private const val DEFAULT_BUBBLE_SIZE_DP = 58
+        private const val DEFAULT_BUBBLE_OPACITY_PERCENT = 75
+        private const val ROOT_HORIZONTAL_PADDING_DP = 8
         private const val OPEN_PANEL_WIDTH_DP = 250
     }
 }
