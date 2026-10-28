@@ -30,6 +30,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -379,54 +380,106 @@ class FloatingBubbleService : Service() {
         }
     }
 
-    private fun saveClipboardTo(slot: String) {
-        val content = ClipboardTools.readText(this)
-        if (content == null) {
-            ClipboardTools.toast(this, "Clipboard is empty. Copy some text first.")
-            return
+    /**
+     * Android 10+ restricts clipboard reads while the app has no input focus.
+     * The bubble is normally FLAG_NOT_FOCUSABLE so it does not steal focus from
+     * the app underneath. Briefly make the overlay focusable for a user-initiated
+     * clipboard read, then restore the original flags immediately.
+     */
+    private suspend fun readClipboardFromBubble(): String? = withContext(Dispatchers.Main.immediate) {
+        val root = rootView ?: return@withContext ClipboardTools.readText(this@FloatingBubbleService)
+        if (!::windowParams.isInitialized) {
+            return@withContext ClipboardTools.readText(this@FloatingBubbleService)
         }
 
-        serviceScope.launch {
-            val dao = database.dao()
-            // Every clipboard save creates a new row; earlier records are preserved.
-            val position = (dao.maxClipboardSheetPosition() ?: -1) + 1
-            val row = when (slot) {
-                "A" -> ClipboardSheetEntity(position = position, colA = content)
-                "B" -> ClipboardSheetEntity(position = position, colB = content)
-                else -> ClipboardSheetEntity(position = position, colC = content)
-            }
-            dao.insertClipboardSheet(row)
+        val originalFlags = windowParams.flags
+        val originalFocusableInTouchMode = root.isFocusableInTouchMode
+        var flagsChanged = false
+        try {
+            windowParams.flags =
+                (originalFlags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()) or
+                    WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
+            windowManager.updateViewLayout(root, windowParams)
+            flagsChanged = true
 
-            withContext(Dispatchers.Main) {
+            root.isFocusableInTouchMode = true
+            root.requestFocus()
+            // Let WindowManager transfer input focus before reading the clipboard.
+            delay(120)
+            ClipboardTools.readText(this@FloatingBubbleService)
+        } catch (_: Exception) {
+            // Fall back to the normal clipboard read if focus could not be changed.
+            ClipboardTools.readText(this@FloatingBubbleService)
+        } finally {
+            if (flagsChanged) {
+                try {
+                    windowParams.flags = originalFlags
+                    windowManager.updateViewLayout(root, windowParams)
+                } catch (_: Exception) {
+                    // The overlay may have been removed while the action was running.
+                }
+            }
+            root.isFocusableInTouchMode = originalFocusableInTouchMode
+            if (!originalFocusableInTouchMode) root.clearFocus()
+        }
+    }
+
+    private fun saveClipboardTo(slot: String) {
+        serviceScope.launch(Dispatchers.Main.immediate) {
+            val content = readClipboardFromBubble()
+            if (content == null) {
+                ClipboardTools.toast(
+                    this@FloatingBubbleService,
+                    "Clipboard text is unavailable. Copy text first, then tap $slot again."
+                )
+                return@launch
+            }
+
+            try {
+                withContext(Dispatchers.IO) {
+                    val dao = database.dao()
+                    // Every clipboard save creates a new row; earlier records are preserved.
+                    val position = (dao.maxClipboardSheetPosition() ?: -1) + 1
+                    val row = when (slot) {
+                        "A" -> ClipboardSheetEntity(position = position, colA = content)
+                        "B" -> ClipboardSheetEntity(position = position, colB = content)
+                        else -> ClipboardSheetEntity(position = position, colC = content)
+                    }
+                    dao.insertClipboardSheet(row)
+                }
                 ClipboardTools.toast(
                     this@FloatingBubbleService,
                     "Saved to Clipboard Sheet, column $slot. Added as a new row."
+                )
+            } catch (exception: Exception) {
+                ClipboardTools.toast(
+                    this@FloatingBubbleService,
+                    "Could not save to column $slot: ${exception.message ?: "database error"}"
                 )
             }
         }
     }
 
     private fun generateAndCopyTotp() {
-        val secret = ClipboardTools.readText(this)
-        if (secret == null) {
-            ClipboardTools.toast(this, "Copy your Base32 2FA secret key first.")
-            return
-        }
+        serviceScope.launch(Dispatchers.Main.immediate) {
+            val secret = readClipboardFromBubble()
+            if (secret == null) {
+                ClipboardTools.toast(
+                    this@FloatingBubbleService,
+                    "2FA key is unavailable. Copy the Base32 secret key, then tap 2FA again."
+                )
+                return@launch
+            }
 
-        serviceScope.launch {
             try {
                 val code = withContext(Dispatchers.Default) { TotpGenerator.generate(secret) }
-                withContext(Dispatchers.Main) {
-                    ClipboardTools.copyText(this@FloatingBubbleService, "FloatClip 2FA code", code)
-                    ClipboardTools.toast(this@FloatingBubbleService, "2FA code copied: $code")
-                }
+                ClipboardTools.copyText(this@FloatingBubbleService, "FloatClip 2FA code", code)
+                ClipboardTools.toast(this@FloatingBubbleService, "2FA code copied: $code")
             } catch (exception: Exception) {
-                withContext(Dispatchers.Main) {
-                    ClipboardTools.toast(
-                        this@FloatingBubbleService,
-                        exception.message ?: "Could not generate a 2FA code."
-                    )
-                }
+                ClipboardTools.toast(
+                    this@FloatingBubbleService,
+                    exception.message ?: "Could not generate a 2FA code."
+                )
             }
         }
     }
