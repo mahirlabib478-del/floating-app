@@ -39,6 +39,7 @@ import kotlinx.coroutines.withContext
 class FloatingBubbleService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val quickCopyMutex = Mutex()
+    private val clipboardSaveMutex = Mutex()
 
     private lateinit var database: FloatClipDatabase
     private lateinit var windowManager: WindowManager
@@ -437,19 +438,39 @@ class FloatingBubbleService : Service() {
 
             try {
                 withContext(Dispatchers.IO) {
-                    val dao = database.dao()
-                    // Every clipboard save creates a new row; earlier records are preserved.
-                    val position = (dao.maxClipboardSheetPosition() ?: -1) + 1
-                    val row = when (slot) {
-                        "A" -> ClipboardSheetEntity(position = position, colA = content)
-                        "B" -> ClipboardSheetEntity(position = position, colB = content)
-                        else -> ClipboardSheetEntity(position = position, colC = content)
+                    clipboardSaveMutex.withLock {
+                        val dao = database.dao()
+                        val rows = dao.getClipboardSheetOnce()
+                        // Each column fills its own first empty cell. For example, saving
+                        // to C after A1 is filled should populate C1, not force C2.
+                        val target = rows.firstOrNull { row ->
+                            when (slot) {
+                                "A" -> row.colA.isBlank()
+                                "B" -> row.colB.isBlank()
+                                else -> row.colC.isBlank()
+                            }
+                        }
+                        if (target != null) {
+                            val updated = when (slot) {
+                                "A" -> target.copy(colA = content)
+                                "B" -> target.copy(colB = content)
+                                else -> target.copy(colC = content)
+                            }
+                            dao.updateClipboardSheet(updated)
+                        } else {
+                            val position = (dao.maxClipboardSheetPosition() ?: -1) + 1
+                            val row = when (slot) {
+                                "A" -> ClipboardSheetEntity(position = position, colA = content)
+                                "B" -> ClipboardSheetEntity(position = position, colB = content)
+                                else -> ClipboardSheetEntity(position = position, colC = content)
+                            }
+                            dao.insertClipboardSheet(row)
+                        }
                     }
-                    dao.insertClipboardSheet(row)
                 }
                 ClipboardTools.toast(
                     this@FloatingBubbleService,
-                    "Saved to Clipboard Sheet, column $slot. Added as a new row."
+                    "Saved to Clipboard Sheet, column $slot."
                 )
             } catch (exception: Exception) {
                 ClipboardTools.toast(
