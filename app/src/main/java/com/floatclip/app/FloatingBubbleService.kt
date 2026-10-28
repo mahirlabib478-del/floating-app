@@ -202,7 +202,13 @@ class FloatingBubbleService : Service() {
 
                     MotionEvent.ACTION_UP -> {
                         if (!moved) {
-                            panel.visibility = if (panel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                            val opening = panel.visibility != View.VISIBLE
+                            panel.visibility = if (opening) View.VISIBLE else View.GONE
+
+                            // WRAP_CONTENT can keep the old narrow overlay width after a
+                            // GONE panel becomes visible on some Android launchers.
+                            // Set the overlay width explicitly so every action button is visible.
+                            windowParams.width = dp(if (opening) OPEN_PANEL_WIDTH_DP else CLOSED_PANEL_WIDTH_DP)
                             panel.requestLayout()
                             root.requestLayout()
                             try {
@@ -370,5 +376,7 @@ class FloatingBubbleService : Service() {
         private const val CHANNEL_ID = "floatclip_bubble"
         private const val NOTIFICATION_ID = 4102
         private const val KEY_LAST_QUICK_TEXT_ID = "last_quick_text_id"
+        private const val CLOSED_PANEL_WIDTH_DP = 70
+        private const val OPEN_PANEL_WIDTH_DP = 250
     }
 }
