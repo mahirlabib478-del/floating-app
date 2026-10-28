@@ -233,7 +233,7 @@ fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipD
                             }
                         }
                         selectedRow = startRow + grid.lastIndex.coerceAtLeast(0)
-                        selectedColumn = (startColumn + grid.lastOrNull()?.lastIndex.orEmptyIndex()).coerceAtMost(3)
+                        selectedColumn = (startColumn + (grid.lastOrNull()?.lastIndex ?: 0)).coerceAtMost(3)
                         val requestedCells = grid.sumOf { it.size }
                         val acceptedCells = grid.sumOf { values ->
                             values.indices.count { startColumn + it in 0..3 }
@@ -516,8 +516,6 @@ private fun parseClipboardGrid(text: String): List<List<String>> {
     if (normalized.isEmpty()) return listOf(listOf(""))
     return normalized.split('\n').map { line -> line.split('\t') }
 }
-
-private fun List<String>?.orEmptyIndex(): Int = this?.lastIndex ?: 0
 
 private fun clipboardCell(item: ClipboardSheetEntity, column: Int): String = when (column) {
     0 -> item.colA
