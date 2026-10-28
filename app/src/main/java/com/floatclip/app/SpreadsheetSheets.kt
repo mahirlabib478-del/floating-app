@@ -7,6 +7,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -88,6 +89,7 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
     val horizontalState = rememberScrollState()
     val editMutex = remember { Mutex() }
     var paletteIndex by remember { mutableStateOf(0) }
+    var selectedRow by remember { mutableStateOf(0) }
     var showPurgeDialog by remember { mutableStateOf(false) }
     val palette = sheetPalettes[paletteIndex]
     val rowCount = maxOf(16, items.size + 1)
@@ -104,6 +106,25 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
         SheetToolbar(
             palette = palette,
             columnCount = 1,
+            selectedCellLabel = "A${selectedRow + 1}",
+            onPaste = {
+                val clipboardText = ClipboardTools.readText(context)
+                if (clipboardText.isNullOrBlank()) {
+                    ClipboardTools.toast(context, "Clipboard is empty. Copy text first.")
+                } else {
+                    val pastedRows = parseClipboardGrid(clipboardText).map { it.firstOrNull().orEmpty() }
+                    val startRow = selectedRow
+                    scope.launch {
+                        editMutex.withLock {
+                            pastedRows.forEachIndexed { offset, value ->
+                                updateQuickTextCell(dao, startRow + offset, value)
+                            }
+                        }
+                        selectedRow = startRow + pastedRows.lastIndex.coerceAtLeast(0)
+                        ClipboardTools.toast(context, "Pasted ${pastedRows.size} row(s) into Column A.")
+                    }
+                }
+            },
             onCopyColumn = {
                 val values = items.map { it.content }.filter { it.isNotBlank() }
                 if (values.isEmpty()) {
@@ -138,6 +159,8 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
                             value = item.content,
                             width = 310.dp,
                             accent = palette.columns[0],
+                            selected = selectedRow == index,
+                            onSelect = { selectedRow = index },
                             onValueChange = { value ->
                                 scope.launch {
                                     editMutex.withLock { updateQuickTextCell(dao, index, value) }
@@ -176,6 +199,8 @@ fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipD
     val horizontalState = rememberScrollState()
     val editMutex = remember { Mutex() }
     var paletteIndex by remember { mutableStateOf(0) }
+    var selectedRow by remember { mutableStateOf(0) }
+    var selectedColumn by remember { mutableStateOf(0) }
     var showPurgeDialog by remember { mutableStateOf(false) }
     val palette = sheetPalettes[paletteIndex]
     val rowCount = maxOf(16, items.size + 1)
@@ -187,6 +212,37 @@ fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipD
         SheetToolbar(
             palette = palette,
             columnCount = 4,
+            selectedCellLabel = columnNames[selectedColumn].last().toString() + (selectedRow + 1),
+            onPaste = {
+                val clipboardText = ClipboardTools.readText(context)
+                if (clipboardText.isNullOrBlank()) {
+                    ClipboardTools.toast(context, "Clipboard is empty. Copy text first.")
+                } else {
+                    val grid = parseClipboardGrid(clipboardText)
+                    val startRow = selectedRow
+                    val startColumn = selectedColumn
+                    scope.launch {
+                        editMutex.withLock {
+                            grid.forEachIndexed { rowOffset, values ->
+                                values.forEachIndexed { columnOffset, value ->
+                                    val destinationColumn = startColumn + columnOffset
+                                    if (destinationColumn in 0..3) {
+                                        updateClipboardCell(dao, startRow + rowOffset, destinationColumn, value)
+                                    }
+                                }
+                            }
+                        }
+                        selectedRow = startRow + grid.lastIndex.coerceAtLeast(0)
+                        selectedColumn = (startColumn + grid.lastOrNull()?.lastIndex.orEmptyIndex()).coerceAtMost(3)
+                        val requestedCells = grid.sumOf { it.size }
+                        val acceptedCells = grid.sumOf { values ->
+                            values.indices.count { startColumn + it in 0..3 }
+                        }
+                        val suffix = if (acceptedCells < requestedCells) " Extra cells beyond COL D were skipped." else ""
+                        ClipboardTools.toast(context, "Pasted $acceptedCells cell(s) from ${columnNames[startColumn].last()} ${startRow + 1}.$suffix")
+                    }
+                }
+            },
             onCopyColumn = { column ->
                 val values = items.map { clipboardCell(it, column) }.filter { it.isNotBlank() }
                 if (values.isEmpty()) {
@@ -229,6 +285,11 @@ fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipD
                                 value = clipboardCell(item, column),
                                 width = 150.dp,
                                 accent = palette.columns[column],
+                                selected = selectedRow == index && selectedColumn == column,
+                                onSelect = {
+                                    selectedRow = index
+                                    selectedColumn = column
+                                },
                                 onValueChange = { value ->
                                     scope.launch {
                                         editMutex.withLock {
@@ -267,6 +328,8 @@ fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipD
 private fun SheetToolbar(
     palette: SheetPalette,
     columnCount: Int,
+    selectedCellLabel: String,
+    onPaste: () -> Unit,
     onCopyColumn: (Int) -> Unit,
     onCsv: () -> Unit,
     onPalette: () -> Unit
@@ -278,6 +341,17 @@ private fun SheetToolbar(
         horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        Button(
+            onClick = onPaste,
+            modifier = Modifier.width(76.dp).height(40.dp),
+            shape = RoundedCornerShape(5.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 0.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF1A73E8),
+                contentColor = Color.White
+            )
+        ) { Text("Paste $selectedCellLabel", fontSize = 10.sp, maxLines = 1) }
+
         for (column in 0 until columnCount) {
             Button(
                 onClick = { onCopyColumn(column) },
@@ -390,6 +464,8 @@ private fun SpreadsheetCell(
     value: String,
     width: Dp,
     accent: Color,
+    selected: Boolean,
+    onSelect: () -> Unit,
     onValueChange: (String) -> Unit
 ) {
     var localText by remember(rowIndex, columnIndex) { mutableStateOf(value) }
@@ -401,8 +477,9 @@ private fun SpreadsheetCell(
 
     Box(
         modifier = Modifier.width(width).height(56.dp)
-            .background(Color.White)
-            .border(1.dp, GridLine)
+            .background(if (selected) Color(0xFFE8F0FE) else Color.White)
+            .border(if (selected) 2.dp else 1.dp, if (selected) Color(0xFF1A73E8) else GridLine)
+            .clickable { onSelect() }
             .padding(horizontal = 8.dp, vertical = 5.dp),
         contentAlignment = Alignment.CenterStart
     ) {
@@ -412,7 +489,10 @@ private fun SpreadsheetCell(
                 localText = it
                 onValueChange(it)
             },
-            modifier = Modifier.fillMaxWidth().onFocusChanged { isFocused = it.isFocused },
+            modifier = Modifier.fillMaxWidth().onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) onSelect()
+            },
             textStyle = TextStyle(color = GridText, fontSize = 14.sp, lineHeight = 18.sp),
             cursorBrush = SolidColor(accent),
             maxLines = 3
@@ -430,6 +510,14 @@ private suspend fun updateQuickTextCell(dao: FloatClipDao, rowIndex: Int, value:
     val row = rows[rowIndex]
     dao.updateQuickText(row.copy(title = value.take(40), content = value))
 }
+
+private fun parseClipboardGrid(text: String): List<List<String>> {
+    val normalized = text.replace("\r\n", "\n").replace('\r', '\n').trimEnd('\n')
+    if (normalized.isEmpty()) return listOf(listOf(""))
+    return normalized.split('\n').map { line -> line.split('\t') }
+}
+
+private fun List<String>?.orEmptyIndex(): Int = this?.lastIndex ?: 0
 
 private fun clipboardCell(item: ClipboardSheetEntity, column: Int): String = when (column) {
     0 -> item.colA
