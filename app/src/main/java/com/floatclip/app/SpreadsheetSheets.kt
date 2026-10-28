@@ -131,8 +131,7 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
         )
 
         LazyColumn(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            key = { it }
+            modifier = Modifier.fillMaxWidth().weight(1f)
         ) {
             itemsIndexed(rows, key = { index, _ -> index }) { index, item ->
                 Row(verticalAlignment = Alignment.Top) {
