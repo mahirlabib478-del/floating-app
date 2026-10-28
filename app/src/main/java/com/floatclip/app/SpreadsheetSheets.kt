@@ -162,7 +162,6 @@ fun QuickTextSpreadsheet(items: List<QuickTextEntity>, dao: FloatClipDao) {
                 selection = SheetSelection(anchor.row, anchor.column, row, column)
                 rangeAnchor = null
                 rangeSelectMode = false
-                focusManager.clearFocus()
                 ClipboardTools.toast(context, "Selected range ${selection.label(1)}.")
             }
         } else {
@@ -368,7 +367,6 @@ fun ClipboardSheetSpreadsheet(items: List<ClipboardSheetEntity>, dao: FloatClipD
                 selection = SheetSelection(anchor.row, anchor.column, row, column)
                 rangeAnchor = null
                 rangeSelectMode = false
-                focusManager.clearFocus()
                 ClipboardTools.toast(context, "Selected range ${selection.label(4)}.")
             }
         } else {
