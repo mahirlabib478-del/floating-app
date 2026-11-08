@@ -217,6 +217,8 @@ class FloatClipTXTApp:
         )
         self.count_var = tk.StringVar(value="0 rows")
         self.next_var = tk.StringVar(value="NEXT UP  ·  ROW 1")
+        self.multi_select_enabled = True
+        self.selection_count_var = tk.StringVar(value="0 selected")
         self.buttons: dict[str, tk.Button] = {}
 
         self.root.title(APP_NAME)
@@ -274,6 +276,10 @@ class FloatClipTXTApp:
             highlightbackground=COLORS["line"],
             disabledforeground="#94A3B8",
         )
+
+    @staticmethod
+    def _tree_select_mode(multi_select_enabled: bool) -> str:
+        return "extended" if multi_select_enabled else "browse"
 
     def _build_interface(self) -> None:
         page = tk.Frame(self.root, bg=COLORS["background"])
@@ -336,6 +342,30 @@ class FloatClipTXTApp:
         )
         self.buttons["copy_next"].pack(side="right", padx=(10, 0))
 
+        selection_bar = tk.Frame(content, bg=COLORS["background"])
+        selection_bar.pack(fill="x", pady=(0, 10))
+        self.buttons["select_all"] = self._button(
+            selection_bar, "Select All Rows", self.select_all_rows,
+            background="#FFFFFF", foreground=COLORS["navy"], padx=14,
+        )
+        self.buttons["select_all"].pack(side="left", padx=(0, 6))
+        self.buttons["multi_select"] = self._button(
+            selection_bar, "Multi-select: ON", self._toggle_multi_select,
+            background="#DBEAFE", foreground="#1D4ED8",
+            active_background="#BFDBFE", padx=14,
+        )
+        self.buttons["multi_select"].pack(side="left", padx=4)
+        self.buttons["clear_selection"] = self._button(
+            selection_bar, "Clear Selection", self.clear_selection,
+            background="#FFFFFF", foreground=COLORS["text"], padx=14,
+        )
+        self.buttons["clear_selection"].pack(side="left", padx=4)
+        tk.Label(
+            selection_bar, textvariable=self.selection_count_var,
+            bg=COLORS["background"], fg=COLORS["muted"],
+            font=("Segoe UI", 9, "bold"),
+        ).pack(side="right", padx=(8, 4))
+
         info = tk.Frame(content, bg=COLORS["background"])
         info.pack(fill="x", pady=(0, 8))
         tk.Label(
@@ -359,7 +389,8 @@ class FloatClipTXTApp:
         table_card.pack(fill="both", expand=True)
         self.tree = ttk.Treeview(
             table_card, columns=("row", "cell"), show="headings",
-            selectmode="extended", style="Sheet.Treeview",
+            selectmode=self._tree_select_mode(self.multi_select_enabled),
+            style="Sheet.Treeview",
         )
         self.tree.heading("row", text="#", anchor="center")
         self.tree.heading("cell", text="A", anchor="w")
@@ -446,11 +477,32 @@ class FloatClipTXTApp:
     def _update_button_states(self) -> None:
         selected = self._selected_ids()
         has_selection = bool(selected)
+        self.selection_count_var.set(
+            f"{len(selected)} selected row{'s' if len(selected) != 1 else ''}"
+        )
         for key in ("delete", "copy_selected", "up", "down"):
-            self.buttons[key].configure(state="normal" if has_selection else "disabled")
+            self.buttons[key].configure(
+                state="normal" if has_selection else "disabled"
+            )
         self.buttons["copy_next"].configure(
             state="normal" if self.items_by_id else "disabled"
         )
+        self.buttons["select_all"].configure(
+            state="normal" if self.items_by_id else "disabled"
+        )
+        self.buttons["clear_selection"].configure(
+            state="normal" if has_selection else "disabled"
+        )
+        if self.multi_select_enabled:
+            self.buttons["multi_select"].configure(
+                text="Multi-select: ON", bg="#DBEAFE", fg="#1D4ED8",
+                activebackground="#BFDBFE",
+            )
+        else:
+            self.buttons["multi_select"].configure(
+                text="Multi-select: OFF", bg="#F1F5F9", fg=COLORS["muted"],
+                activebackground="#E2E8F0",
+            )
         if not selected:
             return
         ordered = [int(value) for value in self.tree.get_children()]
@@ -468,6 +520,44 @@ class FloatClipTXTApp:
 
     def _on_selection_changed(self, _event=None) -> None:
         self._update_button_states()
+
+    def _toggle_multi_select(self) -> None:
+        self.multi_select_enabled = not self.multi_select_enabled
+        self.tree.configure(
+            selectmode=self._tree_select_mode(self.multi_select_enabled)
+        )
+        if not self.multi_select_enabled:
+            selected = self._selected_ids()
+            keep = str(selected[0]) if selected else None
+            current = self.tree.selection()
+            if keep:
+                self.tree.selection_set(keep)
+            elif current:
+                self.tree.selection_remove(*current)
+            self._drag_ids = []
+        self._update_button_states()
+        state = "enabled" if self.multi_select_enabled else "disabled"
+        self.status_var.set(f"Multiple row selection {state}.")
+
+    def select_all_rows(self) -> None:
+        if not self.multi_select_enabled:
+            self.multi_select_enabled = True
+            self.tree.configure(selectmode=self._tree_select_mode(True))
+        children = self.tree.get_children()
+        if children:
+            self.tree.selection_set(*children)
+            self.tree.focus(children[0])
+            self.tree.see(children[0])
+        self._update_button_states()
+        self.status_var.set(f"Selected all {len(children)} rows.")
+
+    def clear_selection(self) -> None:
+        selected = self.tree.selection()
+        if selected:
+            self.tree.selection_remove(*selected)
+        self._drag_ids = []
+        self._update_button_states()
+        self.status_var.set("Selection cleared.")
 
     def _on_double_click(self, event) -> None:
         if self.tree.identify_region(event.x, event.y) != "cell":
@@ -684,10 +774,7 @@ class FloatClipTXTApp:
         return "break"
 
     def _on_select_all(self, _event=None):
-        children = self.tree.get_children()
-        if children:
-            self.tree.selection_set(*children)
-            self._update_button_states()
+        self.select_all_rows()
         return "break"
 
     def _on_edit_shortcut(self, _event=None):
@@ -739,16 +826,23 @@ class FloatClipTXTApp:
         self.status_var.set("Selected rows moved.")
 
     def _on_drag_start(self, event) -> None:
+        self._drag_ids = []
         if self.tree.identify_region(event.x, event.y) not in ("cell", "tree"):
-            self._drag_ids = []
             return
         row_id = self.tree.identify_row(event.y)
         if not row_id:
-            self._drag_ids = []
             return
-        if row_id not in self.tree.selection():
-            self.tree.selection_set(row_id)
-        self._drag_ids = self._selected_ids()
+        # Let Treeview's own click binding process Ctrl/Shift selection first.
+        # Capture the resulting selection after the current click event finishes.
+        self.root.after_idle(
+            lambda clicked_row=row_id: self._capture_drag_selection(clicked_row)
+        )
+
+    def _capture_drag_selection(self, clicked_row_id: str) -> None:
+        selected = self._selected_ids()
+        self._drag_ids = (
+            selected if int(clicked_row_id) in selected else []
+        )
 
     def _on_drag_drop(self, event) -> None:
         dragged = list(self._drag_ids)
