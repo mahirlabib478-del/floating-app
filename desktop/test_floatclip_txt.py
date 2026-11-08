@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from floatclip_txt import QuickTextStore
+from floatclip_txt import FloatClipTXTApp, QuickTextItem, QuickTextStore
 
 
 class QuickTextStoreTests(unittest.TestCase):
@@ -12,6 +12,15 @@ class QuickTextStoreTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp_dir.cleanup()
+
+    def test_add_and_edit_dialog_save_button_labels(self):
+        self.assertEqual(FloatClipTXTApp._save_button_label(None), "Add Row")
+        existing_item = QuickTextItem(
+            id=1, title="Text", content="Existing text", position=0
+        )
+        self.assertEqual(
+            FloatClipTXTApp._save_button_label(existing_item), "Save Cell"
+        )
 
     def test_add_edit_delete(self):
         item_id = self.store.add("Greeting", "Hello there")
