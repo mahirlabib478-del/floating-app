@@ -536,34 +536,51 @@ class FloatClipTXTApp:
         dialog.configure(bg=COLORS["background"])
         dialog.resizable(True, True)
         dialog.transient(self.root)
-        dialog.grab_set()
-        dialog.geometry("650x400")
+
+        # Keep the action buttons visible even on small displays or high-DPI
+        # Windows scaling. The text area gets the flexible space, not the footer.
+        screen_width = dialog.winfo_screenwidth()
+        screen_height = dialog.winfo_screenheight()
+        dialog_width = max(380, min(700, screen_width - 48))
+        dialog_height = max(300, min(500, screen_height - 72))
+        dialog.minsize(min(560, dialog_width), min(360, dialog_height))
+        dialog.geometry(f"{dialog_width}x{dialog_height}")
+
         container = tk.Frame(dialog, bg=COLORS["background"], padx=22, pady=20)
         container.pack(fill="both", expand=True)
+        container.grid_columnconfigure(0, weight=1)
+        container.grid_rowconfigure(2, weight=1)
+
         tk.Label(
             container, text="Edit Cell" if item else "Add Text Row",
             bg=COLORS["background"], fg=COLORS["navy"],
             font=("Segoe UI", 16, "bold"),
-        ).pack(anchor="w")
+        ).grid(row=0, column=0, sticky="w")
         tk.Label(
             container, text="Enter the text stored in this spreadsheet cell.",
             bg=COLORS["background"], fg=COLORS["muted"], font=("Segoe UI", 9),
-        ).pack(anchor="w", pady=(4, 12))
+        ).grid(row=1, column=0, sticky="w", pady=(4, 12))
+
         text_frame = tk.Frame(
             container, bg="#FFFFFF", highlightthickness=1,
             highlightbackground=COLORS["line"],
         )
-        text_frame.pack(fill="both", expand=True, pady=(0, 14))
+        text_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 14))
+        text_frame.grid_columnconfigure(0, weight=1)
+        text_frame.grid_rowconfigure(0, weight=1)
         text_box = tk.Text(
             text_frame, wrap="word", undo=True, font=("Segoe UI", 10),
             relief="flat", bd=0, padx=10, pady=10,
             bg="#FFFFFF", fg=COLORS["text"], insertbackground=COLORS["text"],
         )
-        text_box.pack(fill="both", expand=True)
+        text_box.grid(row=0, column=0, sticky="nsew")
+        scrollbar = ttk.Scrollbar(
+            text_frame, orient="vertical", command=text_box.yview
+        )
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        text_box.configure(yscrollcommand=scrollbar.set)
         if item:
             text_box.insert("1.0", item.content)
-        buttons = tk.Frame(container, bg=COLORS["background"])
-        buttons.pack(fill="x")
 
         def save() -> None:
             value = text_box.get("1.0", "end-1c")
@@ -587,6 +604,8 @@ class FloatClipTXTApp:
             self.refresh(selected_ids=[selected_id])
             self.status_var.set(message)
 
+        buttons = tk.Frame(container, bg=COLORS["background"])
+        buttons.grid(row=3, column=0, sticky="ew")
         tk.Button(
             buttons, text="Cancel", command=dialog.destroy, bg="#FFFFFF",
             fg=COLORS["text"], activebackground="#F1F5F9", relief="flat",
@@ -594,13 +613,28 @@ class FloatClipTXTApp:
             font=("Segoe UI", 9, "bold"),
         ).pack(side="right", padx=(8, 0))
         tk.Button(
-            buttons, text=self._save_button_label(item), command=save, bg=COLORS["blue"],
-            fg="#FFFFFF", activebackground=COLORS["blue_hover"],
+            buttons, text=self._save_button_label(item), command=save,
+            bg=COLORS["blue"], fg="#FFFFFF",
+            activebackground=COLORS["blue_hover"],
             activeforeground="#FFFFFF", relief="flat", bd=0, padx=20,
             pady=10, cursor="hand2", font=("Segoe UI", 9, "bold"),
         ).pack(side="right")
+
+        # Center the dialog over the main app and keep it within the screen.
+        dialog.update_idletasks()
+        parent_x = self.root.winfo_rootx()
+        parent_y = self.root.winfo_rooty()
+        parent_width = max(1, self.root.winfo_width())
+        parent_height = max(1, self.root.winfo_height())
+        x = parent_x + (parent_width - dialog_width) // 2
+        y = parent_y + (parent_height - dialog_height) // 2
+        x = max(0, min(x, screen_width - dialog_width))
+        y = max(0, min(y, screen_height - dialog_height))
+        dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+
         dialog.bind("<Control-Return>", lambda _event: save())
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        dialog.grab_set()
         text_box.focus_set()
 
     def add_text(self) -> None:
