@@ -22,6 +22,10 @@ class QuickTextStoreTests(unittest.TestCase):
             FloatClipTXTApp._save_button_label(existing_item), "Save Cell"
         )
 
+    def test_multi_select_mode_switches_treeview_selection_mode(self):
+        self.assertEqual(FloatClipTXTApp._tree_select_mode(True), "extended")
+        self.assertEqual(FloatClipTXTApp._tree_select_mode(False), "browse")
+
     def test_add_edit_delete(self):
         item_id = self.store.add("Greeting", "Hello there")
         item = self.store.list_items()[0]
