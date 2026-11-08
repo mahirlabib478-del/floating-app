@@ -526,6 +526,10 @@ class FloatClipTXTApp:
         editor.bind("<FocusOut>", lambda _event: finish(True))
         editor.focus_set()
 
+    @staticmethod
+    def _save_button_label(item: QuickTextItem | None) -> str:
+        return "Add Row" if item is None else "Save Cell"
+
     def _open_text_editor(self, item: QuickTextItem | None = None) -> None:
         dialog = tk.Toplevel(self.root)
         dialog.title("Edit Cell" if item else "Add Row")
@@ -590,7 +594,7 @@ class FloatClipTXTApp:
             font=("Segoe UI", 9, "bold"),
         ).pack(side="right", padx=(8, 0))
         tk.Button(
-            buttons, text="Save Cell", command=save, bg=COLORS["blue"],
+            buttons, text=self._save_button_label(item), command=save, bg=COLORS["blue"],
             fg="#FFFFFF", activebackground=COLORS["blue_hover"],
             activeforeground="#FFFFFF", relief="flat", bd=0, padx=20,
             pady=10, cursor="hand2", font=("Segoe UI", 9, "bold"),
