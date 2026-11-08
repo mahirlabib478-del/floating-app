@@ -1,0 +1,39 @@
+name: Build FloatClip TXT Desktop
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "desktop/**"
+      - ".github/workflows/floatclip-txt-desktop.yml"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run TXT queue tests
+        run: python -m unittest discover -s desktop -p "test_*.py" -v
+
+      - name: Install PyInstaller
+        run: python -m pip install --upgrade pyinstaller
+
+      - name: Build Windows executable
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name FloatClipTXT --distpath desktop/dist desktop/floatclip_txt.py
+
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloatClipTXT-Windows
+          path: desktop/dist/FloatClipTXT.exe
+          if-no-files-found: error
+          retention-days: 30
