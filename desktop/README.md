@@ -1,41 +1,45 @@
 # FloatClip TXT Desktop
 
-A Windows desktop version of the TXT / Quick Text Queue from FloatClip Android. This app contains only the TXT queue system.
+A Windows desktop version of only the TXT / Quick Text Queue from FloatClip Android. The main screen is a spreadsheet-style single-column grid.
 
-## Included
+## Spreadsheet-style features
 
-- Add, edit, and delete named text entries.
-- Reorder entries by dragging rows, or with Move Up / Move Down.
-- Copy Selected copies one entry without changing the sequential queue position.
-- Copy Next copies the next entry in the current order.
-- After the final entry, Copy Next loops back to the first entry.
-- The next position is tracked by the entry's unique ID, so editing, reordering, or deleting other entries does not break the queue.
-- Text entries and the last-copied position are saved automatically in a local SQLite database.
+- The queue is displayed as row numbers and column A, like a simple spreadsheet.
+- Double-click a single-line cell to edit it directly. Double-click a multi-line cell to open the full cell editor.
+- Click Paste Rows once to import all non-empty lines from the clipboard as separate rows.
+- If rows are selected, pasted rows are inserted immediately after the last selected row. If nothing is selected, they are appended.
+- Ctrl+V while the grid is focused performs the same multi-row paste.
+- Select multiple rows with Ctrl-click or Shift-click, then delete or copy them together.
+- Drag selected rows to reorder them, or use the up/down buttons.
+- Copy Selected copies selected cell values joined with newlines without advancing the sequential queue.
+- Copy Next copies the next row and loops back to row 1 after the final row.
+- All rows and the last-copied row ID are saved automatically in the existing SQLite database.
 
 ## Run from source
 
-1. Install Python 3.10 or newer on Windows. Make sure Tkinter is included (it is included with the standard python.org Windows installer).
-2. Double-click run_windows.bat, or run: python floatclip_txt.py
+1. Install Python 3.10 or newer on Windows. Make sure Tkinter is included.
+2. Run: python floatclip_txt.py
 
 No third-party packages are needed to run the app.
 
 ## Build a standalone EXE
 
-1. Install Python 3.12 (recommended).
-2. Double-click build_windows.bat.
+1. Install Python 3.12.
+2. Run build_windows.bat.
 3. The standalone application will be created at dist\FloatClipTXT.exe.
 
 ## Data location
 
-The database is stored in:
-
 %APPDATA%\FloatClipTXT\floatclip_txt.db
 
-Closing or reopening the application does not delete saved texts or the sequential copy position.
+The updated desktop app uses the same database location as the previous FloatClip TXT desktop build, so existing saved rows and queue progress are retained.
 
 ## Keyboard shortcuts
 
-- Ctrl + N: Add Text
+- Ctrl + N: Add a row
+- Ctrl + V: Paste clipboard lines as rows (when the grid is focused)
+- Ctrl + A: Select all rows
+- Ctrl + C: Copy selected rows
+- F2: Open full cell editor
 - Ctrl + Enter: Copy Next
-- Delete: Delete the selected entry
-
+- Delete: Delete selected rows
